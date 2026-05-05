@@ -1,0 +1,236 @@
+from dataclasses import dataclass, field
+from typing import Optional
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структуры данных
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ProjectParameters:
+    """
+    Параметры проекта из листа «Проект».
+    Строка 2 = ключ (machine-readable), столбец D = значение.
+    """
+    project_name:         str   = ''
+    gravity:              float = 9.806
+    friction_coefficient: float = 0.08   # μ — коэффициент трения опорных частей
+
+
+@dataclass
+class BearingPlaneRow:
+    """
+    Одна строка листа «Плеть» — одна опора в одной плети.
+
+    z_hinge, z_cg, z_road — общие для правой (r_) и левой (l_) опорных частей.
+    Одна опора может присутствовать в нескольких строках,
+    если она является граничной и принадлежит двум плетям.
+    """
+    pier_name:              str            = ''
+    span_group_name:        str            = ''   # «Плеть 1», «Плеть 2», ...
+
+    z_hinge_elevation:      Optional[float] = None  # отметка шарнира ОЧ
+    z_cg_elevation:         Optional[float] = None  # отметка ЦТ пролёта
+    z_road_elevation:       Optional[float] = None  # отметка верха проезжей части
+
+    # Правая опорная часть (СПРАВА по ходу возрастания пикетажа)
+    right_bearing_number:   Optional[int]  = None
+    right_bearing_type_X:   str            = 'fixed'   # fixed / movable
+    right_bearing_type_Y:   str            = 'fixed'
+    right_load_permanent:   float          = 0.0        # R_perm, тс
+    right_load_temporary:   float          = 0.0        # R_temp, тс
+    right_friction_X:       float          = 0.0        # μX
+
+    # Левая опорная часть (СЛЕВА по ходу возрастания пикетажа)
+    left_bearing_number:    Optional[int]  = None
+    left_bearing_type_X:    str            = 'fixed'
+    left_bearing_type_Y:    str            = 'fixed'
+    left_load_permanent:    float          = 0.0
+    left_load_temporary:    float          = 0.0
+    left_friction_X:        float          = 0.0
+
+
+@dataclass
+class MassesRow:
+    """
+    Одна строка листа «Массы» — вычисленные массы для одной опоры.
+
+    Одна опора может занимать несколько строк, если она является
+    граничной между двумя плетями (тогда для каждой рамки своя строка).
+
+    Python читает уже вычисленные Excel-формулами числа.
+    Перед запуском скрипта необходимо пересчитать формулы в Excel.
+    """
+    pier_name:               str            = ''
+    gravity:                 float          = 9.806
+    span_group_row_start:    Optional[int]  = None  # строка начала плети в листе «Плеть»
+    span_group_row_end:      Optional[int]  = None  # строка конца плети в листе «Плеть»
+
+    # Правая ОЧ — постоянная нагрузка
+    right_bearing_number:    Optional[int]  = None
+    right_mass_X_permanent:  float          = 0.0   # mX, тс·с²/м
+    right_mass_X_z:          Optional[float] = None  # узел Z для mX (z_hinge)
+    right_mass_Y_permanent:  float          = 0.0   # mY
+    right_mass_Y_z:          Optional[float] = None  # узел Z для mY (z_cg)
+    right_mass_Z_permanent:  float          = 0.0   # mZ
+    right_mass_Z_z:          Optional[float] = None  # узел Z для mZ (z_cg)
+
+    # Правая ОЧ — временная нагрузка
+    right_mass_X_temporary:  float          = 0.0
+    right_mass_X_temp_z:     Optional[float] = None
+    right_mass_Y_temporary:  float          = 0.0
+    right_mass_Y_temp_z:     Optional[float] = None
+    right_mass_Z_temporary:  float          = 0.0
+    right_mass_Z_temp_z:     Optional[float] = None
+
+    # Левая ОЧ — постоянная нагрузка
+    left_bearing_number:     Optional[int]  = None
+    left_mass_X_permanent:   float          = 0.0
+    left_mass_X_z:           Optional[float] = None
+    left_mass_Y_permanent:   float          = 0.0
+    left_mass_Y_z:           Optional[float] = None
+    left_mass_Z_permanent:   float          = 0.0
+    left_mass_Z_z:           Optional[float] = None
+
+    # Левая ОЧ — временная нагрузка
+    left_mass_X_temporary:   float          = 0.0
+    left_mass_X_temp_z:      Optional[float] = None
+    left_mass_Y_temporary:   float          = 0.0
+    left_mass_Y_temp_z:      Optional[float] = None
+    left_mass_Z_temporary:   float          = 0.0
+    left_mass_Z_temp_z:      Optional[float] = None
+
+
+@dataclass
+class SectionZone:
+    """
+    Зона сечения для ростверка, стойки или ригеля.
+    Каждая часть разбивается на зоны по высоте Z,
+    в каждой зоне своё сечение и (опционально) TS-GROUP.
+    """
+    section_number:  int
+    material_number: int
+    zone_z_top:      float          # верхняя граница зоны по Z, м
+    use_ts_group:    bool = False    # включить в *TS-GROUP
+    ts_group_number: Optional[int] = None
+
+
+@dataclass
+class FrameParameters:
+    """
+    Параметры одной рамки опоры (рамка 1 или рамка 2).
+
+    Структура рамки снизу вверх:
+      подферменник → опорная часть → вертикаль рамки → горизонталь рамки
+    """
+    frame_number:       int   = 1
+    x_coordinate:       float = 0.0   # X-координата рамки вдоль пролёта, м
+    pad_y_half_width:   float = 0.0   # Y подферменника (одна сторона), м
+
+    pad_z_bottom:       Optional[float] = None  # Z низа подферменника (= верх ригеля)
+    pad_z_top:          Optional[float] = None  # Z верха подферменника
+    pad_section:        Optional[int]   = None
+    pad_material:       Optional[int]   = None
+
+    bearing_z_bottom:   Optional[float] = None  # Z низа опорной части
+    bearing_section:    Optional[int]   = None
+    bearing_material:   Optional[int]   = None  # материал no-sw (без собств. веса)
+
+    frame_section:      Optional[int]   = None  # сечение всех элементов рамки
+    frame_material:     Optional[int]   = None
+
+    bearings_per_pad:   int  = 1     # 1 или 2 ОЧ на один подферменник
+    shared_pad_with_other_frame: bool = False  # общий подф. с соседней рамкой
+
+
+@dataclass
+class PierGeometry:
+    """
+    Геометрические параметры опоры из листа «Опоры».
+
+    geom_source = 'parametric': скрипт генерирует узлы и элементы по параметрам.
+    geom_source = 'mct':        геометрия берётся из готового .mct файла;
+                                 поля cap_zones, col_zones, beam_zones,
+                                 frame1, frame2 при этом не используются.
+    """
+    pier_name:              str  = ''
+    geom_source:            str  = 'parametric'  # 'parametric' или 'mct'
+    calculate:              bool = True           # включить в расчёт
+
+    span_group_row_start:   Optional[int] = None
+    span_group_row_end:     Optional[int] = None
+
+    mct_file_path:          Optional[str] = None  # путь к .mct тела опоры
+    pile_mct_file_path:     Optional[str] = None  # путь к .mct свай
+
+    # Офсеты нумерации узлов и элементов
+    node_offset_footing:    int = 1      # ростверк
+    elem_offset_footing:    int = 1
+    node_offset_column:     int = 101    # стойка
+    elem_offset_column:     int = 101
+    node_offset_crossbeam:  int = 201    # ригель
+    elem_offset_crossbeam:  int = 201
+    node_offset_frame1:     int = 301    # рамка 1
+    elem_offset_frame1:     int = 301
+    node_offset_frame2:     int = 501    # рамка 2
+    elem_offset_frame2:     int = 501
+    node_offset_piles:      int = 1001   # сваи
+    elem_offset_piles:      int = 1001
+
+    # Ростверк (до 2 зон сечений по Z)
+    footing_z_top:          Optional[float] = None
+    footing_mesh_step:      float = 0.5
+    footing_zones:          list = field(default_factory=list)  # [SectionZone]
+
+    # Стойка (до 3 зон сечений по Z)
+    column_z_top:           Optional[float] = None
+    column_mesh_step:       float = 0.5
+    column_zones:           list = field(default_factory=list)
+
+    # Ригель (до 4 зон сечений по Z)
+    crossbeam_z_top:        Optional[float] = None
+    crossbeam_mesh_step:    float = 0.1
+    crossbeam_zones:        list = field(default_factory=list)
+
+    # Рамки
+    frame1:                 Optional[FrameParameters] = None
+    frame2:                 Optional[FrameParameters] = None
+
+
+@dataclass
+class SoilInfluence:
+    """
+    Грунтовые воздействия на опору из листа «Грунт».
+    """
+    pier_name:                 str = ''
+
+    # Площади сечений элементов (для расчёта масс воды и разжижения)
+    footing_area_top:          Optional[float] = None   # S ростверка вверху, м²
+    footing_area_bottom:       Optional[float] = None   # S ростверка внизу, м²
+    column_area_top:           Optional[float] = None   # S стойки вверху, м²
+    column_area_bottom:        Optional[float] = None   # S стойки внизу, м²
+    pile_area_top:             Optional[float] = None   # S сваи вверху, м²
+    pile_area_bottom:          Optional[float] = None   # S сваи внизу, м²
+
+    # Разжиженный грунт
+    liquefaction_present:      bool = False
+    liquefaction_z_top:        Optional[float] = None
+    liquefaction_z_bottom:     Optional[float] = None
+    liquefaction_unit_weight:  Optional[float] = None   # γ, тс/м³
+
+    # Боковое давление грунта
+    lateral_pressure_present:  bool = False
+    pressure_z_surface:        Optional[float] = None   # Z поверхности грунта
+    pressure_z_bottom:         Optional[float] = None   # Z низа эпюры давления
+    pressure_unit_weight:      Optional[float] = None   # γ, тс/м³
+    pressure_friction_angle:   Optional[float] = None   # φ, градусы
+    pressure_width:            Optional[float] = None   # b — ширина сечения, м
+
+    # Масса воды
+    water_mass_present:        bool = False
+    water_z_top:               Optional[float] = None
+    water_z_bottom:            Optional[float] = None
+
+    # Нагрузка от грунта на ростверк
+    soil_load_on_footing:      bool = False
+    soil_load_unit_weight:     Optional[float] = None   # γ, тс/м³
+    soil_load_height:          Optional[float] = None   # h — высота грунта над ростверком, м
