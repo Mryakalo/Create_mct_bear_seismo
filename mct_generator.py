@@ -21,7 +21,7 @@ from module_1 import read_all_input_data, validate_input_data
 
 def main():
     # Для запуска из IDE раскомментируйте и укажите путь:
-    sys.argv = ['mct_generator.py', r'seismic_input.xlsx']
+    # sys.argv = ['mct_generator.py', r'D:\путь\к\seismic_input.xlsx']
 
     if len(sys.argv) < 2:
         print(__doc__)
@@ -37,12 +37,12 @@ def main():
     print(f'g = {project.gravity} м/с²,  μ = {project.friction_coefficient}')
     print()
 
-    print(f'Плеть ({len(all_data["plety"])} строк):')
+    print(f'Плети ({len(all_data["plety"])} строк):')
     for plety_row in all_data['plety']:
         print(f'  [{plety_row.span_group_name}] {plety_row.pier_name}: '
               f'z_hinge={plety_row.z_hinge_elevation}, '
-              f'правая_X={plety_row.right_bearing_type_X}, '
-              f'левая_X={plety_row.left_bearing_type_X}')
+              f'правая_ОЧ={plety_row.right_bearing_type_X}, '
+              f'левая_ОЧ={plety_row.left_bearing_type_X}')
     print()
 
     print(f'Массы ({len(all_data["masses"])} строк):')
@@ -51,10 +51,18 @@ def main():
               f'mX_прав_пост={mass_row.right_mass_X_permanent:.4f}, '
               f'mY_прав_пост={mass_row.right_mass_Y_permanent:.4f}, '
               f'mZ_прав_пост={mass_row.right_mass_Z_permanent:.4f}, '
-              f'  (левая ОЧ №{mass_row.left_bearing_number}): '
+              f'mX_прав_врем={mass_row.right_mass_X_temporary:.4f}, '
+              f'mY_прав_врем={mass_row.right_mass_Y_temporary:.4f}, '
+              f'mZ_прав_врем={mass_row.right_mass_Z_temporary:.4f}, ')
+        print(
+              f'     (левая ОЧ №{mass_row.left_bearing_number}): '
               f'mX_лев_пост={mass_row.left_mass_X_permanent:.4f}, '
               f'mY_лев_пост={mass_row.left_mass_Y_permanent:.4f}, '
-              f'mZ_лев_пост={mass_row.left_mass_Z_permanent:.4f}')
+              f'mZ_лев_пост={mass_row.left_mass_Z_permanent:.4f}, '
+              f'mX_лев_врем={mass_row.left_mass_X_temporary:.4f}, '
+              f'mY_лев_врем={mass_row.left_mass_Y_temporary:.4f}, '
+              f'mZ_лев_врем={mass_row.left_mass_Z_temporary:.4f}, '
+              )
     print()
 
     all_piers      = all_data['opory']
@@ -66,23 +74,36 @@ def main():
         print(f'  Пропущены (calculate=нет): '
               f'{[pier.pier_name for pier in piers_to_skip]}')
     for pier in piers_to_calc:
+        transform_info = ''
+        if pier.translate_x or pier.translate_y or pier.translate_z:
+            transform_info += (f', перенос=({pier.translate_x:.2f}, '
+                               f'{pier.translate_y:.2f}, {pier.translate_z:.2f})')
+        if pier.rotate_angle_deg:
+            transform_info += f', поворот={pier.rotate_angle_deg:.1f}°'
         frame2_info = (f', рамка2(x={pier.frame2.x_coordinate})'
                        if pier.frame2 else '')
+        piles_info = f', сваи={pier.pile_mct_file_path}' if pier.pile_mct_file_path else ''
         print(f'  {pier.pier_name} [{pier.geom_source}]: '
               f'ростверк={len(pier.footing_zones)} зон, '
               f'стойка={len(pier.column_zones)} зон, '
               f'ригель={len(pier.crossbeam_zones)} зон, '
               f'рамка1(x={pier.frame1.x_coordinate if pier.frame1 else "—"})'
-              f'{frame2_info}')
+              f'{frame2_info}{piles_info}{transform_info}')
     print()
 
     print(f'Грунт ({len(all_data["grunt"])}):')
     for soil in all_data['grunt']:
         active_influences = []
-        if soil.liquefaction_present:  active_influences.append('разжижение')
-        if soil.lateral_pressure_present: active_influences.append('боковое давление')
-        if soil.water_mass_present:    active_influences.append('масса воды')
-        if soil.soil_load_on_footing:  active_influences.append('нагрузка на ростверк')
+        if soil.liquefaction_present:
+            active_influences.append('разжижение')
+        if soil.lateral_pressure_y_present:
+            active_influences.append('давление_Y')
+        if soil.lateral_pressure_z_present:
+            active_influences.append('давление_Z')
+        if soil.water_mass_present:
+            active_influences.append('масса воды')
+        if soil.soil_load_on_footing:
+            active_influences.append('нагрузка на ростверк')
         print(f'  {soil.pier_name}: '
               f'{", ".join(active_influences) or "нет грунтовых воздействий"}')
     print()
@@ -100,4 +121,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

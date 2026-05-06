@@ -56,14 +56,16 @@ def is_data_row(excel_row: dict, pier_name_column: str = 'pier_name') -> bool:
     Проверяет, является ли строка Excel строкой с данными.
     Возвращает False для:
       - пустых строк
-      - строк-разделителей плетей («Плеть 1», «Плеть 2», ...)
-      - строк-примечаний (начинаются с *)
+      - строк-разделителей плетей («Плеть 1», «Плеть 2», ...),
+        включая строки с пробелами перед словом «Плеть»
+      - строк-примечаний (начинаются с * после пробелов)
     """
     pier_name = to_string(excel_row.get(pier_name_column))
     if pier_name is None:
         return False
-    if pier_name.startswith('Плеть'):
+    stripped = pier_name.lstrip()
+    if stripped.startswith('Плеть'):
         return False
-    if pier_name.startswith('*'):
+    if stripped.startswith('*'):
         return False
     return True

@@ -12,7 +12,7 @@ class ProjectParameters:
     Строка 2 = ключ (machine-readable), столбец D = значение.
     """
     project_name:         str   = ''
-    gravity:              float = 9.806
+    gravity:              float = 9.806  # м/с² — переопределяется из листа «Проект»
     friction_coefficient: float = 0.08   # μ — коэффициент трения опорных частей
 
 
@@ -61,7 +61,7 @@ class MassesRow:
     Перед запуском скрипта необходимо пересчитать формулы в Excel.
     """
     pier_name:               str            = ''
-    gravity:                 float          = 9.806
+    gravity:                 float          = 9.806  # м/с² — переопределяется из листа «Проект»
     span_group_row_start:    Optional[int]  = None  # строка начала плети в листе «Плеть»
     span_group_row_end:      Optional[int]  = None  # строка конца плети в листе «Плеть»
 
@@ -151,6 +151,11 @@ class PierGeometry:
     geom_source = 'mct':        геометрия берётся из готового .mct файла;
                                  поля cap_zones, col_zones, beam_zones,
                                  frame1, frame2 при этом не используются.
+
+    Аффинное преобразование применяется ко всем узлам опоры (включая сваи):
+      1. Поворот вокруг глобальной оси Z на rotate_angle_deg (CCW при взгляде сверху).
+      2. Перенос на (translate_x, translate_y, translate_z).
+    Бета-угол всех вертикальных элементов устанавливается равным rotate_angle_deg.
     """
     pier_name:              str  = ''
     geom_source:            str  = 'parametric'  # 'parametric' или 'mct'
@@ -161,6 +166,12 @@ class PierGeometry:
 
     mct_file_path:          Optional[str] = None  # путь к .mct тела опоры
     pile_mct_file_path:     Optional[str] = None  # путь к .mct свай
+
+    # Аффинное преобразование (поворот → перенос)
+    translate_x:            float = 0.0  # dx, м
+    translate_y:            float = 0.0  # dy, м
+    translate_z:            float = 0.0  # dz, м
+    rotate_angle_deg:       float = 0.0  # angle, ° (CCW при взгляде сверху)
 
     # Офсеты нумерации узлов и элементов
     node_offset_footing:    int = 1      # ростверк
@@ -200,37 +211,57 @@ class PierGeometry:
 class SoilInfluence:
     """
     Грунтовые воздействия на опору из листа «Грунт».
-    """
-    pier_name:                 str = ''
 
-    # Площади сечений элементов (для расчёта масс воды и разжижения)
-    footing_area_top:          Optional[float] = None   # S ростверка вверху, м²
-    footing_area_bottom:       Optional[float] = None   # S ростверка внизу, м²
-    column_area_top:           Optional[float] = None   # S стойки вверху, м²
-    column_area_bottom:        Optional[float] = None   # S стойки внизу, м²
-    pile_area_top:             Optional[float] = None   # S сваи вверху, м²
-    pile_area_bottom:          Optional[float] = None   # S сваи внизу, м²
+    Боковое давление разделено на два независимых направления:
+      - по локальной оси Y элемента (y_pressure_*)
+      - по локальной оси Z элемента (z_pressure_*)
+    Оба направления используют общие γ и φ, но могут иметь
+    разные зоны по высоте (z_surface, z_bottom).
+
+    Ширина сечения для эпюры давления задаётся отдельно для каждой
+    части опоры (ростверк / стойка / свая) и постоянна по высоте.
+    """
+    pier_name:                   str = ''
+
+    # Площади сечений (для масс воды и разжижения)
+    footing_area_top:            Optional[float] = None   # S ростверка вверху, м²
+    footing_area_bottom:         Optional[float] = None   # S ростверка внизу, м²
+    column_area_top:             Optional[float] = None   # S стойки вверху, м²
+    column_area_bottom:          Optional[float] = None   # S стойки внизу, м²
+    pile_area_top:               Optional[float] = None   # S сваи вверху, м²
+    pile_area_bottom:            Optional[float] = None   # S сваи внизу, м²
+
+    # Ширина сечений (для бокового давления грунта)
+    footing_width:               Optional[float] = None   # cap_width, м
+    column_width:                Optional[float] = None   # col_width, м
+    pile_width:                  Optional[float] = None   # pile_width, м
 
     # Разжиженный грунт
-    liquefaction_present:      bool = False
-    liquefaction_z_top:        Optional[float] = None
-    liquefaction_z_bottom:     Optional[float] = None
-    liquefaction_unit_weight:  Optional[float] = None   # γ, тс/м³
+    liquefaction_present:        bool = False
+    liquefaction_z_top:          Optional[float] = None
+    liquefaction_z_bottom:       Optional[float] = None
+    liquefaction_unit_weight:    Optional[float] = None   # γ, тс/м³
 
-    # Боковое давление грунта
-    lateral_pressure_present:  bool = False
-    pressure_z_surface:        Optional[float] = None   # Z поверхности грунта
-    pressure_z_bottom:         Optional[float] = None   # Z низа эпюры давления
-    pressure_unit_weight:      Optional[float] = None   # γ, тс/м³
-    pressure_friction_angle:   Optional[float] = None   # φ, градусы
-    pressure_width:            Optional[float] = None   # b — ширина сечения, м
+    # Боковое давление — по локальной оси Y элемента
+    lateral_pressure_y_present:  bool = False
+    pressure_y_z_surface:        Optional[float] = None   # Z поверхности грунта
+    pressure_y_z_bottom:         Optional[float] = None   # Z низа эпюры давления
+
+    # Боковое давление — по локальной оси Z элемента
+    lateral_pressure_z_present:  bool = False
+    pressure_z_z_surface:        Optional[float] = None
+    pressure_z_z_bottom:         Optional[float] = None
+
+    # Общие параметры грунта для обоих направлений давления
+    pressure_unit_weight:        Optional[float] = None   # γ, тс/м³
+    pressure_friction_angle:     Optional[float] = None   # φ, градусы
 
     # Масса воды
-    water_mass_present:        bool = False
-    water_z_top:               Optional[float] = None
-    water_z_bottom:            Optional[float] = None
+    water_mass_present:          bool = False
+    water_z_top:                 Optional[float] = None
+    water_z_bottom:              Optional[float] = None
 
     # Нагрузка от грунта на ростверк
-    soil_load_on_footing:      bool = False
-    soil_load_unit_weight:     Optional[float] = None   # γ, тс/м³
-    soil_load_height:          Optional[float] = None   # h — высота грунта над ростверком, м
+    soil_load_on_footing:        bool = False
+    soil_load_unit_weight:       Optional[float] = None   # γ, тс/м³
+    soil_load_height:            Optional[float] = None   # h — высота грунта над ростверком, м
