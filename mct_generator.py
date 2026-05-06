@@ -13,10 +13,11 @@ mct_generator.py — генератор .mct файлов Midas Civil
 import sys
 
 from module_1 import read_all_input_data, validate_input_data
+from module_2 import generate_pier_geometry
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Точка входа (тестирование модуля 1)
+#  Точка входа
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
@@ -29,6 +30,11 @@ def main():
 
     excel_file_path = sys.argv[1]
     print(f'Читаем: {excel_file_path}\n')
+
+    # ── Модуль 1: чтение входных данных ─────────────────────────────────────
+    print('\n' + '═' * 60)
+    print('Модуль 1 — чтение входных данных')
+    print('═' * 60)
 
     all_data = read_all_input_data(excel_file_path)
     project  = all_data['project']
@@ -117,6 +123,26 @@ def main():
         print('Проверка данных: OK')
 
     print('\nМодуль 1 завершён.')
+
+    # ── Модуль 2: генерация геометрии ────────────────────────────────────────
+    print('\n' + '═' * 60)
+    print('Модуль 2 — генерация параметрической геометрии')
+    print('═' * 60)
+
+    pier_models = {}  # pier_name → PierModel | None
+
+    for pier in piers_to_calc:
+        try:
+            model = generate_pier_geometry(pier)
+            pier_models[pier.pier_name] = model
+        except ValueError as exc:
+            print(f'  ОШИБКА [{pier.pier_name}]: {exc}')
+            pier_models[pier.pier_name] = None
+
+    successful = sum(1 for m in pier_models.values() if m is not None)
+    failed     = len(pier_models) - successful
+    print(f'\nМодуль 2 завершён: {successful} опор обработано'
+          + (f', {failed} с ошибками' if failed else '') + '.')
 
 
 if __name__ == '__main__':

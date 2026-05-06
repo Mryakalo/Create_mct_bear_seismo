@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Структуры данных
+#  Структуры данных для модуля 1
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @dataclass
@@ -265,3 +265,45 @@ class SoilInfluence:
     soil_load_on_footing:        bool = False
     soil_load_unit_weight:       Optional[float] = None   # γ, тс/м³
     soil_load_height:            Optional[float] = None   # h — высота грунта над ростверком, м
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структуры данных для модуля 2
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class Node:
+    """Узел конечно-элементной модели."""
+    node_id: int
+    x: float
+    y: float
+    z: float
+
+
+@dataclass
+class Element:
+    """Стержневой элемент КЭ-модели."""
+    elem_id:         int
+    node_i:          int          # id начального узла
+    node_j:          int          # id конечного узла
+    section_number:  int
+    material_number: int
+
+
+@dataclass
+class TsGroup:
+    """Группа элементов для директивы *TS-GROUP в Midas Civil."""
+    group_number: int
+    elem_ids:     list[int] = field(default_factory=list)
+
+
+@dataclass
+class PierModel:
+    """
+    Полная КЭ-модель одной опоры.
+    Часть 1 заполняет nodes, elements, ts_groups.
+    Части 2–N добавят рамки, сваи и т.д.
+    """
+    pier_name: str
+    nodes:     dict[int, Node]    = field(default_factory=dict)  # node_id → Node
+    elements:  dict[int, Element] = field(default_factory=dict)  # elem_id → Element
+    ts_groups: dict[int, TsGroup] = field(default_factory=dict)  # group_number → TsGroup
