@@ -1,0 +1,22 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+.venv
+*.plb
+*.bak
+*.dat
+*.cdb
+*.prt
+*.lck
+*.gra
+*.sdb
+*.cfg
+*.dwl
+*.dwl2
+*.erg
+*.error_positions
+*.lst
+~$*
+
+.idea
+venv

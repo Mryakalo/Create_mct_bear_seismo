@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 import pandas as pd
 
@@ -421,10 +422,12 @@ def validate_input_data(all_data: dict) -> list[str]:
             if pier.frame1 is None:
                 error_messages.append(
                     f'ОШИБКА [{pier_name}]: рамка 1 не задана')
-        elif pier.geom_source == 'mct':
-            if not pier.mct_file_path:
-                error_messages.append(
-                    f'ОШИБКА [{pier_name}]: geom_source=mct, но путь к файлу не задан')
+            elif pier.geom_source == 'mct':
+                if not pier.mct_file_path:
+                    error_messages.append(...)
+                elif not Path(pier.mct_file_path).exists():
+                    error_messages.append(
+                        f'ОШИБКА [{pier_name}]: файл не найден: {pier.mct_file_path}')
 
         # Перекрытие офсетов нумерации
         offsets = {
