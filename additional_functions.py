@@ -120,21 +120,49 @@ def get_or_create_node(
     return node_id
 
 
+_MIN_TAIL = 0.1  # м — минимальная допустимая длина последнего элемента
+
+
 def _z_coordinates_for_zone(z_bottom: float, z_top: float, mesh_step: float) -> list[float]:
     """
-    Возвращает список Z-координат узлов зоны [z_bottom .. z_top]
-    с шагом не более mesh_step (равномерное разбиение).
-    Всегда включает оба конца. Минимум 2 точки → 1 элемент.
+    Возвращает список Z-координат узлов зоны [z_bottom .. z_top].
+
+    Алгоритм:
+      - Все элементы, кроме последнего, имеют длину ровно mesh_step.
+      - Последний элемент получает остаток: remainder = length - n_full * mesh_step.
+      - Если remainder < _MIN_TAIL (0.1 м), он присоединяется к предпоследнему
+        элементу — последний узел просто не создаётся, а z_top ставится в конец
+        предыдущего шага. Итого элементов = n_full - 1 + 1 (удлинённый).
+      - Минимум 1 элемент (вся зона — один элемент, если length <= mesh_step).
     """
     length = z_top - z_bottom
     if length <= 0:
         raise ValueError(
             f'Некорректная зона: z_bottom={z_bottom:.4f} >= z_top={z_top:.4f}')
-    n_elements = max(1, math.ceil(length / mesh_step))
-    step = length / n_elements
-    coords = [z_bottom + i * step for i in range(n_elements + 1)]
-    # Корректируем последнюю точку на случай накопленной погрешности
-    coords[-1] = z_top
+
+    n_full = int(length / mesh_step)   # количество полных шагов
+    remainder = length - n_full * mesh_step
+
+    if n_full == 0:
+        # Вся зона короче mesh_step — один элемент
+        return [z_bottom, z_top]
+
+    if remainder < _MIN_TAIL - 1e-9:
+        # Остаток меньше порога: поглощается последним полным элементом.
+        # Элементов = n_full, узлов = n_full + 1.
+        # coords[0..n_full-1] — полные шаги; coords[n_full] = z_top (удлинённый хвост).
+        n_elems = n_full
+    else:
+        # Остаток достаточен — выделяем отдельным элементом.
+        # Элементов = n_full + 1, узлов = n_full + 2.
+        n_elems = n_full + 1
+
+    # Генерируем n_elems + 1 точек: n_full полных шагов + финальная точка = z_top
+    coords = [z_bottom + i * mesh_step for i in range(n_full + 1)]
+    if n_elems > n_full:
+        coords.append(z_top)   # остаток — отдельный элемент
+    else:
+        coords[-1] = z_top     # остаток поглощён: сдвигаем последнюю точку в z_top
     return coords
 
 

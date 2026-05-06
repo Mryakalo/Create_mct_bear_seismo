@@ -124,9 +124,7 @@ class FrameParameters:
     """
     frame_number:       int   = 1
     x_coordinate:       float = 0.0   # X-координата рамки вдоль пролёта, м
-    pad_y_half_width:   float = 0.0   # Y подферменника симметр. (одна сторона), м
-    pad_y_right:        float = 0.0   # Y правого подферменника (+Y сторона), м
-    pad_y_left:         float = 0.0   # Y левого  подферменника (−Y сторона, >0), м
+    pad_y_half_width:   float = 0.0   # Y подферменника (одна сторона), м
 
     pad_z_bottom:       Optional[float] = None  # Z низа подферменника (= верх ригеля)
     pad_z_top:          Optional[float] = None  # Z верха подферменника

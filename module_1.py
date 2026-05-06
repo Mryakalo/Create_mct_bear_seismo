@@ -226,6 +226,11 @@ def parse_frame_parameters(excel_row, frame_number: int) -> Optional[FrameParame
     """
     Читает параметры рамки из строки листа «Опоры».
     Возвращает None если рамка не задана (поле f{n}_x пустое).
+
+    Логика Y-координат подферменников:
+      Если заданы f{n}_r_pad_y и/или f{n}_l_pad_y — используются индивидуальные
+      значения (несимметричный режим). Если не заданы — оба берутся из f{n}_pad_y
+      (симметричный режим, обратная совместимость).
     """
     prefix = f'f{frame_number}_'
 
@@ -233,10 +238,22 @@ def parse_frame_parameters(excel_row, frame_number: int) -> Optional[FrameParame
     if x_coordinate is None:
         return None   # рамка не задана
 
+    # ── Y-координаты подферменников ──────────────────────────────────────────
+    # Ключи Excel: f1_r_pad_y / f1_l_pad_y (рамка 1), f2_r_pad_y / f2_l_pad_y (рамка 2)
+    pad_y_sym   = to_float(excel_row.get(prefix + 'pad_y'), 0.0)
+    pad_y_right = to_float(excel_row.get(prefix + 'r_pad_y'))  # +Y, правый подферменник
+    pad_y_left  = to_float(excel_row.get(prefix + 'l_pad_y'))  # −Y, левый  подферменник (>0)
+    if pad_y_right is None:
+        pad_y_right = pad_y_sym
+    if pad_y_left is None:
+        pad_y_left = pad_y_sym
+
     return FrameParameters(
         frame_number                  = frame_number,
         x_coordinate                  = x_coordinate,
-        pad_y_half_width              = to_float(excel_row.get(prefix + 'pad_y'), 0.0),
+        pad_y_half_width              = pad_y_sym,    # оставлено для обратной совместимости
+        pad_y_right                   = pad_y_right,  # Y правого подф. (+Y сторона), м
+        pad_y_left                    = pad_y_left,   # Y левого  подф. (−Y сторона), м
         pad_z_bottom                  = to_float(excel_row.get(prefix + 'pad_z_bot')),
         pad_z_top                     = to_float(excel_row.get(prefix + 'pad_z_top')),
         pad_section                   = to_int(excel_row.get(prefix + 'pad_sec')),
