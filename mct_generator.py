@@ -20,8 +20,8 @@ from module_2 import (
     PierGeometryResult, ShaftPartResult, FrameResult, BearingMeta,
     _part_label,
 )
-from module_2_part3 import MctLoadResult, PileLoadResult
 from module_2_part4 import Part4Result, print_part4_report
+from module_2_part5 import Part5Result, print_part5_report
 from data_structures import PierModel
 
 
@@ -496,6 +496,9 @@ def main():
         # Часть 4 — RigidLink, Constraints, Hinges
         if result.part4_result is not None and result.model is not None:
             print_part4_report(result.part4_result, result.model)
+        # Часть 5 — Аффинное преобразование
+        if result.part5_result is not None:
+            print_part5_report(result.part5_result)
 
     successful = sum(1 for r in pier_results.values() if r.model is not None)
     failed     = len(pier_results) - successful

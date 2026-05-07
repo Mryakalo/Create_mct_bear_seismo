@@ -359,3 +359,167 @@ class PierModel:
     ts_groups:  dict[int, TsGroup]       = field(default_factory=dict)  # group_number → TsGroup
     frame_rls:  dict[int, FrameRLS]      = field(default_factory=dict)  # elem_id → FrameRLS
     springs:    dict[int, SpringSupport] = field(default_factory=dict)  # node_id → SpringSupport
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структуры данных модуль 2, часть 3
+# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Внутренние структуры для хранения «сырых» данных из .mct
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class _RawNode:
+    orig_id: int
+    x: float
+    y: float
+    z: float
+
+
+@dataclass
+class _RawElement:
+    orig_id: int
+    elem_type: str   # 'BEAM', и т.д.
+    section:   int
+    material:  int
+    node_i:    int   # оригинальный id
+    node_j:    int   # оригинальный id
+    beta:      int   # угол бета (последнее поле строки элемента)
+
+
+@dataclass
+class _RawSpring:
+    orig_node_id: int
+    spring_type:  str
+    sdx:          float
+    sdy:          float
+    raw_tail:     str   # всё после sdy — дословно
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Результирующие структуры (для вывода в main/mct_generator)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class PileLoadResult:
+    """Итог импорта свай из .mct файла (для вывода в main)."""
+    pier_name:      str
+    mct_path:       str
+    n_nodes:        int = 0
+    n_elements:     int = 0
+    n_springs:      int = 0
+    node_offset:    int = 0
+    elem_offset:    int = 0
+    # Диапазоны новых id после перенумерации
+    node_id_min:      Optional[int] = None
+    node_id_max:      Optional[int] = None
+    elem_id_min:      Optional[int] = None
+    elem_id_max:      Optional[int] = None
+    # Уникальные номера материалов и сечений (отсортированы)
+    material_numbers: list[int] = field(default_factory=list)
+    section_numbers:  list[int] = field(default_factory=list)
+    errors:           list[str] = field(default_factory=list)
+
+
+@dataclass
+class MctLoadResult:
+    """
+    Итог импорта тела опоры из .mct файла (geom_source='mct').
+
+    Содержит полную статистику для вывода в main:
+      - количество узлов, элементов, пружин
+      - уникальные номера материалов и сечений из *ELEMENT
+      - диапазоны id узлов и элементов в модели
+    """
+    pier_name:        str
+    mct_path:         str
+    n_nodes:          int       = 0
+    n_elements:       int       = 0
+    n_springs:        int       = 0
+    node_offset:      int       = 0
+    elem_offset:      int       = 0
+    node_id_min:      Optional[int] = None
+    node_id_max:      Optional[int] = None
+    elem_id_min:      Optional[int] = None
+    elem_id_max:      Optional[int] = None
+    # Уникальные номера материалов и сечений (отсортированы)
+    material_numbers: list[int] = field(default_factory=list)
+    section_numbers:  list[int] = field(default_factory=list)
+    errors:           list[str] = field(default_factory=list)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структуры данных модуль 2, часть 4
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class RigidLink:
+    """
+    Жёсткая связь (*RIGID-LINK в Midas Civil).
+
+    master_node_id  — мастер-узел (ведущий).
+    slave_node_ids  — список слейв-узлов.
+    dof_flags       — кортеж из 6 bool (Dx,Dy,Dz,Rx,Ry,Rz): True = связана степень свободы.
+                      По умолчанию все 6 СС связаны.
+    """
+    link_id:        int
+    master_node_id: int
+    slave_node_ids: list[int] = field(default_factory=list)
+    dof_flags:      tuple[bool, bool, bool, bool, bool, bool] = (
+        True, True, True, True, True, True)
+
+    # Человекочитаемое описание (не влияет на вывод в .mct)
+    description: str = ''
+
+
+@dataclass
+class Constraint:
+    """
+    Граничное условие (*CONSTRAINT в Midas Civil).
+
+    node_id  — узел.
+    flags    — кортеж из 7 значений: (Dx, Dy, Dz, Rx, Ry, Rz, тип).
+               1 = закреплено, 0 = свободно.
+               Последний элемент — тип опоры (0 = обычная, 1 = пружинная и т.п.).
+               По умолчанию: полное защемление без указания типа.
+    """
+    node_id: int
+    flags:   tuple[int, int, int, int, int, int, int] = (1, 1, 1, 1, 1, 1, 0)
+
+    description: str = ''
+
+
+# Стандартные маски ГУ
+CONSTRAINT_FULL   = (1, 1, 1, 1, 1, 1, 0)   # полное защемление
+CONSTRAINT_DZ_RZ  = (0, 0, 1, 0, 0, 1, 0)   # только Dz + Rz (низ свай)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структура данных модуля 2, часть 5
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class Part5Result:
+    """
+    Результат аффинного преобразования (для main и Модуля 5).
+
+    Attributes
+    ----------
+    applied : bool
+        True если преобразование действительно выполнялось
+        (False при fast-path нулевого преобразования).
+    rotate_angle_deg : float
+        Угол поворота CCW, градусы.
+    translate : tuple[float, float, float]
+        Вектор переноса (dx, dy, dz), м.
+    n_nodes_transformed : int
+        Количество узлов, у которых пересчитаны координаты.
+    n_elems_beta_set : int
+        Количество вертикальных элементов, которым присвоен бета-угол.
+    errors : list[str]
+        Ошибки, не прерывающие расчёт (для логирования в main).
+    """
+    applied:              bool  = False
+    rotate_angle_deg:     float = 0.0
+    translate:            tuple = (0.0, 0.0, 0.0)
+    n_nodes_transformed:  int   = 0
+    n_elems_beta_set:     int   = 0
+    errors:               list  = field(default_factory=list)
+
