@@ -19,7 +19,7 @@ from module_2_part3 import (
     load_piles_for_pier, load_pier_body_for_pier,
 )
 from module_2_part4 import generate_part4, Part4Result
-from module_2_part5 import apply_affine_transform, Part5Result
+from module_2_part5 import Part5Result
 
 
 # ── Несимметричные подферменники ─────────────────────────────────────────────
@@ -838,16 +838,12 @@ def generate_pier_geometry(
         # ── Часть 4 — RigidLink, Constraints, Hinges ──────────────────────────
         part4_result = generate_part4(model, pier)
 
-        # ── Часть 5 — Аффинное преобразование ────────────────────────────────
-        part5_result = apply_affine_transform(model, pier)
-
         return PierGeometryResult(
             pier_name=pier.pier_name,
             model=model,
             mct_body_result=mct_body_result,
             pile_result=pile_result,
             part4_result=part4_result,
-            part5_result=part5_result,
         )
 
     # ── Вариант 2: параметрическая геометрия ─────────────────────────────────
@@ -883,11 +879,6 @@ def generate_pier_geometry(
     # ── Часть 4 — RigidLink, Constraints, Hinges ─────────────────────────────
     part4_result = generate_part4(model, pier)
 
-    # ── Часть 5 — Аффинное преобразование ────────────────────────────────────
-    # coord_index уже не нужен после Части 4, но передаём для его актуализации
-    # на случай, если Модуль 5 захочет использовать индекс постфактум.
-    part5_result = apply_affine_transform(model, pier, coord_index=coord_index)
-
     return PierGeometryResult(
         pier_name=pier.pier_name,
         model=model,
@@ -895,5 +886,4 @@ def generate_pier_geometry(
         frame_results=frame_results,
         pile_result=pile_result,
         part4_result=part4_result,
-        part5_result=part5_result,
     )

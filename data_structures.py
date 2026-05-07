@@ -220,22 +220,46 @@ class SoilInfluence:
     Оба направления используют общие γ и φ, но могут иметь
     разные зоны по высоте (z_surface, z_bottom).
 
-    Ширина сечения для эпюры давления задаётся отдельно для каждой
-    части опоры (ростверк / стойка / свая) и постоянна по высоте.
+    Площади сечений (для масс воды и разжижения) задаются зонами по высоте:
+      - ростверк: 2 зоны (sec1 / sec2)
+      - стойка:   3 зоны (sec1 / sec2 / sec3)
+      - свая:     1 зона
+
+    Ширины сечений (для бокового давления) также задаются зонами:
+      - ростверк: 2 зоны (sec1 / sec2)
+      - стойка:   3 зоны (sec1 / sec2 / sec3)
+      - свая:     1 зона
     """
     pier_name:                   str = ''
 
-    # Площади сечений (для масс воды и разжижения)
-    footing_area_top:            Optional[float] = None   # S ростверка вверху, м²
-    footing_area_bottom:         Optional[float] = None   # S ростверка внизу, м²
-    column_area_top:             Optional[float] = None   # S стойки вверху, м²
-    column_area_bottom:          Optional[float] = None   # S стойки внизу, м²
+    # Площади сечений ростверка (для масс воды и разжижения)
+    footing_area_sec1_top:       Optional[float] = None   # S ростверка зона 1 верх, м²
+    footing_area_sec1_bottom:    Optional[float] = None   # S ростверка зона 1 низ, м²
+    footing_area_sec2_top:       Optional[float] = None   # S ростверка зона 2 верх, м²
+    footing_area_sec2_bottom:    Optional[float] = None   # S ростверка зона 2 низ, м²
+
+    # Площади сечений стойки
+    column_area_sec1_top:        Optional[float] = None   # S стойки зона 1 верх, м²
+    column_area_sec1_bottom:     Optional[float] = None   # S стойки зона 1 низ, м²
+    column_area_sec2_top:        Optional[float] = None   # S стойки зона 2 верх, м²
+    column_area_sec2_bottom:     Optional[float] = None   # S стойки зона 2 низ, м²
+    column_area_sec3_top:        Optional[float] = None   # S стойки зона 3 верх, м²
+    column_area_sec3_bottom:     Optional[float] = None   # S стойки зона 3 низ, м²
+
+    # Площади сечений сваи
     pile_area_top:               Optional[float] = None   # S сваи вверху, м²
     pile_area_bottom:            Optional[float] = None   # S сваи внизу, м²
 
-    # Ширина сечений (для бокового давления грунта)
-    footing_width:               Optional[float] = None   # cap_width, м
-    column_width:                Optional[float] = None   # col_width, м
+    # Ширины сечений ростверка (для бокового давления грунта)
+    footing_width_sec1:          Optional[float] = None   # ширина ростверка зона 1, м
+    footing_width_sec2:          Optional[float] = None   # ширина ростверка зона 2, м
+
+    # Ширины сечений стойки
+    column_width_sec1:           Optional[float] = None   # ширина стойки зона 1, м
+    column_width_sec2:           Optional[float] = None   # ширина стойки зона 2, м
+    column_width_sec3:           Optional[float] = None   # ширина стойки зона 3, м
+
+    # Ширина сечения сваи
     pile_width:                  Optional[float] = None   # pile_width, м
 
     # Разжиженный грунт
@@ -522,4 +546,86 @@ class Part5Result:
     n_nodes_transformed:  int   = 0
     n_elems_beta_set:     int   = 0
     errors:               list  = field(default_factory=list)
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структуры данных Модуля 3
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ConcentratedLoad:
+    """
+    Сосредоточенная нагрузка в узле (нагрузки от пролётных строений).
+
+    direction: 'FX' | 'FY' | 'FZ'
+    value    : тс (знак: отрицательный = вниз/против оси)
+    """
+    node_id:   int
+    direction: str
+    value:     float
+
+
+@dataclass
+class NodalMass:
+    """
+    Сосредоточенная масса в узле (*MASS в Midas Civil).
+
+    mx, my, mz — тс·с²/м
+    """
+    node_id: int
+    mx:      float = 0.0
+    my:      float = 0.0
+    mz:      float = 0.0
+
+
+@dataclass
+class TrapezoidalLoad:
+    """
+    Трапециевидная нагрузка на элемент (боковое давление грунта).
+
+    direction: 'GX' | 'GY' | 'GZ' (глобальные оси)
+    value_i / value_j — тс/м в узлах i и j элемента
+    """
+    elem_id:   int
+    direction: str
+    value_i:   float
+    value_j:   float
+
+
+@dataclass
+class Part3Result:
+    """
+    Полный результат Модуля 3 — нагрузки и массы для одной опоры.
+
+    Схема 1 (только постоянные):
+        permanent_loads   — вертикальные силы от постоянных нагрузок ОЧ
+        permanent_masses  — массы от постоянных нагрузок ОЧ
+
+    Схема 2 (постоянные + временные):
+        temporary_loads   — вертикальные силы (постоянные + временные)
+        temporary_masses  — массы (постоянные + временные)
+
+    Общие для обеих схем:
+        water_masses          — горизонтальные массы от воды
+        liquefaction_masses   — горизонтальные массы от разжиженного грунта
+        lateral_loads_y       — боковое давление грунта по Y
+        lateral_loads_z       — боковое давление грунта по Z
+        soil_vertical_load    — вертикальная сила от грунта на ростверк
+        soil_vertical_mass    — масса по Z от грунта на ростверк
+    """
+    permanent_loads:       list['ConcentratedLoad']  = field(default_factory=list)
+    permanent_masses:      list['NodalMass']          = field(default_factory=list)
+
+    temporary_loads:       list['ConcentratedLoad']  = field(default_factory=list)
+    temporary_masses:      list['NodalMass']          = field(default_factory=list)
+
+    water_masses:          list['NodalMass']          = field(default_factory=list)
+    liquefaction_masses:   list['NodalMass']          = field(default_factory=list)
+
+    lateral_loads_y:       list['TrapezoidalLoad']   = field(default_factory=list)
+    lateral_loads_z:       list['TrapezoidalLoad']   = field(default_factory=list)
+
+    soil_vertical_load:    Optional['ConcentratedLoad'] = None
+    soil_vertical_mass:    Optional['NodalMass']         = None
+
+    warnings: list[str] = field(default_factory=list)
+    errors:   list[str] = field(default_factory=list)
 

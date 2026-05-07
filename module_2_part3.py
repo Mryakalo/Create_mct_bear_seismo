@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Optional
 
 from data_structures import (
-    Element, Node, PierModel, SpringSupport,
+    Element, Node, PierModel, SpringSupport, MctLoadResult, _RawNode, _RawElement, _RawSpring, PileLoadResult,
 )
 from additional_functions import _coord_key
 

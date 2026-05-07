@@ -335,3 +335,4 @@ def _is_vertical_element(model: PierModel, elem: Element) -> bool:
         math.isclose(ni.y, nj.y, abs_tol=_VERT_TOL)
     )
 
+

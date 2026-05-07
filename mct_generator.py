@@ -21,8 +21,10 @@ from module_2 import (
     _part_label,
 )
 from module_2_part4 import Part4Result, print_part4_report
-from module_2_part5 import Part5Result, print_part5_report
-from data_structures import PierModel
+from module_2_part5 import Part5Result
+from data_structures import PierModel, Part3Result, ConcentratedLoad, NodalMass
+from module_3_part1 import generate_span_loads
+from module_4 import run_module4, print_module4_report
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -351,6 +353,72 @@ def print_pile_report(result: PierGeometryResult) -> None:
             print(f'      … ещё {len(pr.errors) - 10} предупреждений')
 
 
+def print_span_loads_report(pier_name: str, result: Part3Result) -> None:
+    """
+    Выводит отчёт по нагрузкам и массам от пролётных строений (Модуль 3, Часть 1).
+    """
+    from collections import defaultdict
+    SEP2 = '\u2550' * 60
+
+    print(f'\n  {SEP2}')
+    print(f'  Нагрузки от пролётных строений [{pier_name}]')
+    print(f'  {SEP2}')
+
+    def _print_loads_table(loads, title):
+        print(f'\n    {title}:')
+        if not loads:
+            print('      (нет нагрузок)')
+            return
+        print(f'    {chr(9472)*44}')
+        print(f'    {"Узел":>6}  {"Направление":^11}  {"Значение, тс":>14}')
+        print(f'    {chr(9472)*44}')
+        by_node = defaultdict(list)
+        for load in loads:
+            by_node[load.node_id].append(load)
+        for nid in sorted(by_node):
+            for load in by_node[nid]:
+                print(f'    {nid:>6}  {load.direction:^11}  {load.value:>14.4f}')
+        print(f'    {chr(9472)*44}')
+        total = sum(abs(l.value) for l in loads)
+        print(f'    {"Итого |FZ|":>33}  {total:>14.4f} тс')
+
+    def _print_masses_table(masses, title):
+        print(f'\n    {title}:')
+        if not masses:
+            print('      (нет масс)')
+            return
+        print(f'    {chr(9472)*58}')
+        print(f'    {"Узел":>6}  {"mx, тс·с²/м":>14}  {"my, тс·с²/м":>14}  {"mz, тс·с²/м":>14}')
+        print(f'    {chr(9472)*58}')
+        for nm in sorted(masses, key=lambda m: m.node_id):
+            print(f'    {nm.node_id:>6}  {nm.mx:>14.4f}  {nm.my:>14.4f}  {nm.mz:>14.4f}')
+        print(f'    {chr(9472)*58}')
+        print(f'    {"Итого":>6}  '
+              f'{sum(m.mx for m in masses):>14.4f}  '
+              f'{sum(m.my for m in masses):>14.4f}  '
+              f'{sum(m.mz for m in masses):>14.4f}')
+
+    print(f'\n    ── Схема 1: только постоянные нагрузки ──────────────────')
+    _print_loads_table(result.permanent_loads,  'Нагрузки (узел z_cg)')
+    _print_masses_table(result.permanent_masses, 'Массы постоянные')
+
+    print(f'\n    ── Схема 2: постоянные + временные нагрузки ─────────────')
+    _print_loads_table(result.temporary_loads,  'Нагрузки (z_cg и z_road)')
+    _print_masses_table(result.temporary_masses, 'Массы суммарные')
+
+    if result.warnings:
+        print(f'\n    Предупреждения ({len(result.warnings)}):')
+        for w in result.warnings:
+            print(f'      WARN: {w}')
+    if result.errors:
+        print(f'\n    Ошибки ({len(result.errors)}):')
+        for e in result.errors:
+            print(f'      ERR:  {e}')
+    if not result.warnings and not result.errors:
+        print(f'\n    Диагностика: OK')
+
+
+
 def main():
     # Для запуска из IDE раскомментируйте и укажите путь:
     # sys.argv = ['mct_generator.py', r'D:\путь\к\seismic_input.xlsx']
@@ -496,14 +564,53 @@ def main():
         # Часть 4 — RigidLink, Constraints, Hinges
         if result.part4_result is not None and result.model is not None:
             print_part4_report(result.part4_result, result.model)
-        # Часть 5 — Аффинное преобразование
-        if result.part5_result is not None:
-            print_part5_report(result.part5_result)
 
     successful = sum(1 for r in pier_results.values() if r.model is not None)
     failed     = len(pier_results) - successful
     print(f'\nМодуль 2 завершён: {successful} опор обработано'
           + (f', {failed} с ошибками' if failed else '') + '.')
+
+    # ── Модуль 3, Часть 1: нагрузки и массы от пролётных строений ────────
+    print('\n' + '═' * 60)
+    print('Модуль 3, Часть 1 — нагрузки и массы от пролётных строений')
+    print('═' * 60)
+
+    span_load_results: dict[str, Part3Result] = {}
+
+    for pier in piers_to_calc:
+        pier_geom_result = pier_results.get(pier.pier_name)
+        if pier_geom_result is None or pier_geom_result.model is None:
+            print(f'  [{pier.pier_name}]: модель не построена — пропуск')
+            continue
+
+        span_result = generate_span_loads(
+            pier         = pier,
+            pier_model   = pier_geom_result.model,
+            bearing_rows = all_data['plety'],
+            masses_rows  = all_data['masses'],
+        )
+        span_load_results[pier.pier_name] = span_result
+        print_span_loads_report(pier.pier_name, span_result)
+
+    successful3 = len(span_load_results)
+    errors3     = sum(1 for r in span_load_results.values() if r.errors)
+    print(f'\nМодуль 3, Часть 1 завершён: {successful3} опор обработано'
+          + (f', {errors3} с ошибками' if errors3 else '') + '.')
+
+    # ── Модуль 4: аффинное преобразование ────────────────────────────────
+    print('\n' + '═' * 60)
+    print('Модуль 4 — аффинное преобразование')
+    print('═' * 60)
+
+    transform_results = run_module4(piers_to_calc, pier_results)
+
+    for pier_name, t_result in transform_results.items():
+        print_module4_report(pier_name, t_result)
+
+    successful4 = len(transform_results)
+    errors4     = sum(1 for r in transform_results.values() if r.errors)
+    print(f'\nМодуль 4 завершён: {successful4} опор обработано'
+          + (f', {errors4} с ошибками' if errors4 else '') + '.')
 
 
 if __name__ == '__main__':
