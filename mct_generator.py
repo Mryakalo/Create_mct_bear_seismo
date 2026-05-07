@@ -21,6 +21,7 @@ from module_2 import (
     _part_label,
 )
 from module_2_part3 import MctLoadResult, PileLoadResult
+from module_2_part4 import Part4Result, print_part4_report
 from data_structures import PierModel
 
 
@@ -492,6 +493,9 @@ def main():
             print_frames_report(result)
         # Сваи выводим в любом случае (если они есть)
         print_pile_report(result)
+        # Часть 4 — RigidLink, Constraints, Hinges
+        if result.part4_result is not None and result.model is not None:
+            print_part4_report(result.part4_result, result.model)
 
     successful = sum(1 for r in pier_results.values() if r.model is not None)
     failed     = len(pier_results) - successful

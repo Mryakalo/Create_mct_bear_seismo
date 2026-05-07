@@ -19,6 +19,7 @@ from module_2_part3 import (
     load_piles_for_pier, load_pier_body_for_pier,
     PileLoadResult, MctLoadResult,
 )
+from module_2_part4 import generate_part4, Part4Result
 
 
 # ── Несимметричные подферменники ─────────────────────────────────────────────
@@ -94,6 +95,8 @@ class PierGeometryResult:
     mct_body_result: Optional[MctLoadResult] = None
     # Результат загрузки свай из .mct (заполняется если задан pile_mct_file_path)
     pile_result: Optional[PileLoadResult] = None
+    # Результат Части 4 — RigidLink, Constraints, Hinges
+    part4_result: Optional['Part4Result'] = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -830,11 +833,15 @@ def generate_pier_geometry(
                 if mct_body_result is not None:
                     mct_body_result.errors.append(f'Сваи: {exc}')
 
+        # ── Часть 4 — RigidLink, Constraints, Hinges ──────────────────────────
+        part4_result = generate_part4(model, pier)
+
         return PierGeometryResult(
             pier_name=pier.pier_name,
             model=model,
             mct_body_result=mct_body_result,
             pile_result=pile_result,
+            part4_result=part4_result,
         )
 
     # ── Вариант 2: параметрическая геометрия ─────────────────────────────────
@@ -867,10 +874,14 @@ def generate_pier_geometry(
             dummy.errors.append(str(exc))
             pile_result = dummy
 
+    # ── Часть 4 — RigidLink, Constraints, Hinges ─────────────────────────────
+    part4_result = generate_part4(model, pier)
+
     return PierGeometryResult(
         pier_name=pier.pier_name,
         model=model,
         shaft_parts=shaft_parts,
         frame_results=frame_results,
         pile_result=pile_result,
+        part4_result=part4_result,
     )
