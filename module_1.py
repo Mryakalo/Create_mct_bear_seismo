@@ -350,70 +350,20 @@ def read_pier_geometry(file_path: str) -> list[PierGeometry]:
     return result_piers
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Вспомогательные функции для чтения листа «Грунт»
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Индексы столбцов листа «Грунт» (0-based, после чтения через read_excel_sheet).
-# В Excel ключи для 3-й зоны стойки и для 2-й зоны ширины ростверка
-# дублируют ранее использованные имена, поэтому эти поля читаются по
-# позиции (iloc), а не по имени (get).
-#
-# Структура листа (строка ключей — строка 2 в Excel):
-#   col  0  pier_name
-#   col  1  cap_area_sec_1_top      ─┐ площадь ростверка, зона 1
-#   col  2  cap_area_sec_1_bot      ─┘
-#   col  3  cap_area_sec_2_top      ─┐ площадь ростверка, зона 2
-#   col  4  cap_area_sec_2_bot      ─┘
-#   col  5  col_area_sec_1_top      ─┐ площадь стойки, зона 1
-#   col  6  col_area_sec_1_bot      ─┘
-#   col  7  col_area_sec_2_top      ─┐ площадь стойки, зона 2
-#   col  8  col_area_sec_2_bot      ─┘
-#   col  9  (дубль ключа)           ─┐ площадь стойки, зона 3  ← читать по iloc
-#   col 10  (дубль ключа)           ─┘
-#   col 11  pile_area_top           ─┐ площадь сваи
-#   col 12  pile_area_bot           ─┘
-#   col 13  cap_sec_1_width           ширина ростверка, зона 1
-#   col 14  (дубль ключа)             ширина ростверка, зона 2  ← читать по iloc
-#   col 15  col_sec_1_width           ширина стойки, зона 1
-#   col 16  col_sec_2_width           ширина стойки, зона 2
-#   col 17  col_sec_3_width           ширина стойки, зона 3
-#   col 18  pile_width                ширина сваи
-#   col 19  liq_present   … и далее по именам
-
-_GRUNT_COL_CAP_AREA_SEC2_TOP  = 3   # площадь ростверка зона 2 верх
-_GRUNT_COL_CAP_AREA_SEC2_BOT  = 4   # площадь ростверка зона 2 низ
-_GRUNT_COL_COL_AREA_SEC3_TOP  = 9   # площадь стойки зона 3 верх
-_GRUNT_COL_COL_AREA_SEC3_BOT  = 10  # площадь стойки зона 3 низ
-_GRUNT_COL_CAP_WIDTH_SEC2     = 14  # ширина ростверка зона 2
-_GRUNT_COL_COL_WIDTH_SEC3     = 17  # ширина стойки зона 3
-
-
 def read_soil_influences(file_path: str) -> list[SoilInfluence]:
     """
     Читает лист «Грунт».
 
-    Строка 1 — суперзаголовки групп
-    Строка 2 — machine-readable ключи (header)
-    Строка 3 — описания для пользователя (пропускается)
-    Строка 4 и далее — данные
-
-    Площади сечений для масс воды и разжижения задаются зонами:
-      Ростверк: 2 зоны (cap_area_sec_1_top/bot, cap_area_sec_2_top/bot)
-      Стойка:   3 зоны (col_area_sec_1_top/bot, col_area_sec_2_top/bot,
-                         зона 3 читается по позиции из-за дублирующихся ключей)
-      Свая:     1 зона  (pile_area_top/bot)
-
-    Ширины сечений для бокового давления также задаются зонами:
-      Ростверк: 2 зоны (cap_sec_1_width, зона 2 по позиции)
-      Стойка:   3 зоны (col_sec_1_width, col_sec_2_width, col_sec_3_width)
-      Свая:     1 зона  (pile_width)
+    Строка 2 — ключи, строка 3 — описания.
 
     Боковое давление разделено на два независимых направления:
       y_pressure_* — давление по локальной оси Y элемента
       z_pressure_* — давление по локальной оси Z элемента
     Общие параметры грунта (pres_gamma, pres_phi) используются
     для обоих направлений.
+
+    Ширина сечения для эпюры давления (cap_width, col_width, pile_width)
+    постоянна по высоте и задаётся отдельно для каждой части опоры.
     """
     dataframe = read_excel_sheet(file_path, 'Грунт', key_row_number=2)
     result_soils: list[SoilInfluence] = []
@@ -422,89 +372,40 @@ def read_soil_influences(file_path: str) -> list[SoilInfluence]:
         if not is_data_row(excel_row):
             continue
 
-        # ── Площади сечений ростверка ────────────────────────────────────────
-        # Зона 1 читается по имени (ключи уникальны)
-        cap_area_sec1_top = to_float(excel_row.get('cap_area_sec_1_top'))
-        cap_area_sec1_bot = to_float(excel_row.get('cap_area_sec_1_bot'))
-        # Зона 2 читается по имени (ключ cap_area_sec_2_top/bot уникален)
-        cap_area_sec2_top = to_float(excel_row.get('cap_area_sec_2_top'))
-        cap_area_sec2_bot = to_float(excel_row.get('cap_area_sec_2_bot'))
-
-        # ── Площади сечений стойки ───────────────────────────────────────────
-        # Зоны 1 и 2 читаются по имени
-        col_area_sec1_top = to_float(excel_row.get('col_area_sec_1_top'))
-        col_area_sec1_bot = to_float(excel_row.get('col_area_sec_1_bot'))
-        col_area_sec2_top = to_float(excel_row.get('col_area_sec_2_top'))
-        col_area_sec2_bot = to_float(excel_row.get('col_area_sec_2_bot'))
-        # Зона 3 — ключ дублирует зону 1, читаем по позиции столбца
-        col_area_sec3_top = to_float(excel_row.iloc[_GRUNT_COL_COL_AREA_SEC3_TOP])
-        col_area_sec3_bot = to_float(excel_row.iloc[_GRUNT_COL_COL_AREA_SEC3_BOT])
-
-        # ── Площади свай ─────────────────────────────────────────────────────
-        pile_area_top = to_float(excel_row.get('pile_area_top'))
-        pile_area_bot = to_float(excel_row.get('pile_area_bot'))
-
-        # ── Ширины сечений ростверка ─────────────────────────────────────────
-        # Зона 1 читается по имени
-        cap_width_sec1 = to_float(excel_row.get('cap_sec_1_width'))
-        # Зона 2 — ключ дублирует зону 1, читаем по позиции
-        cap_width_sec2 = to_float(excel_row.iloc[_GRUNT_COL_CAP_WIDTH_SEC2])
-
-        # ── Ширины сечений стойки ────────────────────────────────────────────
-        col_width_sec1 = to_float(excel_row.get('col_sec_1_width'))
-        col_width_sec2 = to_float(excel_row.get('col_sec_2_width'))
-        col_width_sec3 = to_float(excel_row.get('col_sec_3_width'))
-
-        # ── Ширина сваи ──────────────────────────────────────────────────────
-        pile_width = to_float(excel_row.get('pile_width'))
-
         soil = SoilInfluence(
             pier_name                  = to_string(excel_row.get('pier_name'), ''),
-            # ── Площади ростверка (зоны 1 и 2) ──────────────────────────────
-            footing_area_sec1_top      = cap_area_sec1_top,
-            footing_area_sec1_bottom   = cap_area_sec1_bot,
-            footing_area_sec2_top      = cap_area_sec2_top,
-            footing_area_sec2_bottom   = cap_area_sec2_bot,
-            # ── Площади стойки (зоны 1, 2 и 3) ──────────────────────────────
-            column_area_sec1_top       = col_area_sec1_top,
-            column_area_sec1_bottom    = col_area_sec1_bot,
-            column_area_sec2_top       = col_area_sec2_top,
-            column_area_sec2_bottom    = col_area_sec2_bot,
-            column_area_sec3_top       = col_area_sec3_top,
-            column_area_sec3_bottom    = col_area_sec3_bot,
-            # ── Площади свай ─────────────────────────────────────────────────
-            pile_area_top              = pile_area_top,
-            pile_area_bottom           = pile_area_bot,
-            # ── Ширины ростверка (зоны 1 и 2) ────────────────────────────────
-            footing_width_sec1         = cap_width_sec1,
-            footing_width_sec2         = cap_width_sec2,
-            # ── Ширины стойки (зоны 1, 2 и 3) ────────────────────────────────
-            column_width_sec1          = col_width_sec1,
-            column_width_sec2          = col_width_sec2,
-            column_width_sec3          = col_width_sec3,
-            # ── Ширина сваи ──────────────────────────────────────────────────
-            pile_width                 = pile_width,
-            # ── Разжижение ───────────────────────────────────────────────────
+            # Площади сечений
+            footing_area_top           = to_float(excel_row.get('cap_area_top')),
+            footing_area_bottom        = to_float(excel_row.get('cap_area_bot')),
+            column_area_top            = to_float(excel_row.get('col_area_top')),
+            column_area_bottom         = to_float(excel_row.get('col_area_bot')),
+            pile_area_top              = to_float(excel_row.get('pile_area_top')),
+            pile_area_bottom           = to_float(excel_row.get('pile_area_bot')),
+            # Ширина сечений
+            footing_width              = to_float(excel_row.get('cap_width')),
+            column_width               = to_float(excel_row.get('col_width')),
+            pile_width                 = to_float(excel_row.get('pile_width')),
+            # Разжижение
             liquefaction_present       = to_bool(excel_row.get('liq_present', 'нет')),
             liquefaction_z_top         = to_float(excel_row.get('liq_z_top')),
             liquefaction_z_bottom      = to_float(excel_row.get('liq_z_bot')),
             liquefaction_unit_weight   = to_float(excel_row.get('liq_gamma')),
-            # ── Давление — ось Y ─────────────────────────────────────────────
+            # Давление — ось Y
             lateral_pressure_y_present = to_bool(excel_row.get('y_pressure_present', 'нет')),
             pressure_y_z_surface       = to_float(excel_row.get('y_pres_z_surf')),
             pressure_y_z_bottom        = to_float(excel_row.get('y_pres_z_bot')),
-            # ── Давление — ось Z ─────────────────────────────────────────────
+            # Давление — ось Z
             lateral_pressure_z_present = to_bool(excel_row.get('z_pressure_present', 'нет')),
             pressure_z_z_surface       = to_float(excel_row.get('z_pres_z_surf')),
             pressure_z_z_bottom        = to_float(excel_row.get('z_pres_z_bot')),
-            # ── Общие параметры грунта ────────────────────────────────────────
+            # Общие параметры грунта
             pressure_unit_weight       = to_float(excel_row.get('pres_gamma')),
             pressure_friction_angle    = to_float(excel_row.get('pres_phi')),
-            # ── Масса воды ───────────────────────────────────────────────────
+            # Масса воды
             water_mass_present         = to_bool(excel_row.get('water_present', 'нет')),
             water_z_top                = to_float(excel_row.get('water_z_top')),
             water_z_bottom             = to_float(excel_row.get('water_z_bot')),
-            # ── Нагрузка на ростверк ─────────────────────────────────────────
+            # Нагрузка на ростверк
             soil_load_on_footing       = to_bool(excel_row.get('soil_on_cap_present', 'нет')),
             soil_load_unit_weight      = to_float(excel_row.get('soil_on_cap_gamma')),
             soil_load_height           = to_float(excel_row.get('soil_on_cap_h')),
@@ -630,34 +531,6 @@ def validate_input_data(all_data: dict) -> list[str]:
         # ── Грунтовые воздействия ───────────────────────────────────────────
         if pier_name in soil_by_pier:
             soil = soil_by_pier[pier_name]
-
-            # Площади сечений ростверка
-            if soil.footing_area_sec1_top is None:
-                error_messages.append(
-                    f'ПРЕДУПРЕЖДЕНИЕ [{pier_name}]: грунт — не задана площадь '
-                    f'ростверка зона 1 верх (cap_area_sec_1_top)')
-            if soil.footing_area_sec1_bottom is None:
-                error_messages.append(
-                    f'ПРЕДУПРЕЖДЕНИЕ [{pier_name}]: грунт — не задана площадь '
-                    f'ростверка зона 1 низ (cap_area_sec_1_bot)')
-
-            # Площади сечений стойки
-            if soil.column_area_sec1_top is None:
-                error_messages.append(
-                    f'ПРЕДУПРЕЖДЕНИЕ [{pier_name}]: грунт — не задана площадь '
-                    f'стойки зона 1 верх (col_area_sec_1_top)')
-
-            # Ширины ростверка
-            if soil.footing_width_sec1 is None:
-                error_messages.append(
-                    f'ПРЕДУПРЕЖДЕНИЕ [{pier_name}]: грунт — не задана ширина '
-                    f'ростверка зона 1 (cap_sec_1_width)')
-
-            # Ширины стойки
-            if soil.column_width_sec1 is None:
-                error_messages.append(
-                    f'ПРЕДУПРЕЖДЕНИЕ [{pier_name}]: грунт — не задана ширина '
-                    f'стойки зона 1 (col_sec_1_width)')
 
             # Разжижение
             if soil.liquefaction_present:

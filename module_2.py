@@ -13,13 +13,13 @@ from typing import Optional
 from additional_functions import _coord_key, _z_coordinates_for_zone, _add_ts_group_element
 from data_structures import (
     BearingPlaneRow, FrameParameters, FrameRLS,
-    PierGeometry, SectionZone, PierModel, Node, Element, PileLoadResult, MctLoadResult,
+    PierGeometry, SectionZone, PierModel, Node, Element,
 )
 from module_2_part3 import (
     load_piles_for_pier, load_pier_body_for_pier,
+    PileLoadResult, MctLoadResult,
 )
 from module_2_part4 import generate_part4, Part4Result
-from module_2_part5 import Part5Result
 
 
 # ── Несимметричные подферменники ─────────────────────────────────────────────
@@ -97,8 +97,6 @@ class PierGeometryResult:
     pile_result: Optional[PileLoadResult] = None
     # Результат Части 4 — RigidLink, Constraints, Hinges
     part4_result: Optional['Part4Result'] = None
-    # Результат Части 5 — аффинное преобразование
-    part5_result: Optional['Part5Result'] = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

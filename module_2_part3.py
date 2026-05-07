@@ -31,9 +31,93 @@ from pathlib import Path
 from typing import Optional
 
 from data_structures import (
-    Element, Node, PierModel, SpringSupport, MctLoadResult, _RawNode, _RawElement, _RawSpring, PileLoadResult,
+    Element, Node, PierModel, SpringSupport,
 )
 from additional_functions import _coord_key
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Внутренние структуры для хранения «сырых» данных из .mct
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class _RawNode:
+    orig_id: int
+    x: float
+    y: float
+    z: float
+
+
+@dataclass
+class _RawElement:
+    orig_id: int
+    elem_type: str   # 'BEAM', и т.д.
+    section:   int
+    material:  int
+    node_i:    int   # оригинальный id
+    node_j:    int   # оригинальный id
+    beta:      int   # угол бета (последнее поле строки элемента)
+
+
+@dataclass
+class _RawSpring:
+    orig_node_id: int
+    spring_type:  str
+    sdx:          float
+    sdy:          float
+    raw_tail:     str   # всё после sdy — дословно
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Результирующие структуры (для вывода в main/mct_generator)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class PileLoadResult:
+    """Итог импорта свай из .mct файла (для вывода в main)."""
+    pier_name:      str
+    mct_path:       str
+    n_nodes:        int = 0
+    n_elements:     int = 0
+    n_springs:      int = 0
+    node_offset:    int = 0
+    elem_offset:    int = 0
+    # Диапазоны новых id после перенумерации
+    node_id_min:      Optional[int] = None
+    node_id_max:      Optional[int] = None
+    elem_id_min:      Optional[int] = None
+    elem_id_max:      Optional[int] = None
+    # Уникальные номера материалов и сечений (отсортированы)
+    material_numbers: list[int] = field(default_factory=list)
+    section_numbers:  list[int] = field(default_factory=list)
+    errors:           list[str] = field(default_factory=list)
+
+
+@dataclass
+class MctLoadResult:
+    """
+    Итог импорта тела опоры из .mct файла (geom_source='mct').
+
+    Содержит полную статистику для вывода в main:
+      - количество узлов, элементов, пружин
+      - уникальные номера материалов и сечений из *ELEMENT
+      - диапазоны id узлов и элементов в модели
+    """
+    pier_name:        str
+    mct_path:         str
+    n_nodes:          int       = 0
+    n_elements:       int       = 0
+    n_springs:        int       = 0
+    node_offset:      int       = 0
+    elem_offset:      int       = 0
+    node_id_min:      Optional[int] = None
+    node_id_max:      Optional[int] = None
+    elem_id_min:      Optional[int] = None
+    elem_id_max:      Optional[int] = None
+    # Уникальные номера материалов и сечений (отсортированы)
+    material_numbers: list[int] = field(default_factory=list)
+    section_numbers:  list[int] = field(default_factory=list)
+    errors:           list[str] = field(default_factory=list)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

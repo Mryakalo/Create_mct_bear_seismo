@@ -44,9 +44,177 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
-from data_structures import PierGeometry, PierModel, FrameRLS, RigidLink, Constraint, CONSTRAINT_DZ_RZ, CONSTRAINT_FULL
-from additional_functions import _coord_key, _footing_bottom_node, _pile_top_nodes, _crossbeam_top_node, \
-    _pad_bottom_nodes, _pile_bottom_nodes
+from data_structures import PierGeometry, PierModel, FrameRLS
+from additional_functions import _coord_key
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Новые структуры данных Части 4
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class RigidLink:
+    """
+    Жёсткая связь (*RIGID-LINK в Midas Civil).
+
+    master_node_id  — мастер-узел (ведущий).
+    slave_node_ids  — список слейв-узлов.
+    dof_flags       — кортеж из 6 bool (Dx,Dy,Dz,Rx,Ry,Rz): True = связана степень свободы.
+                      По умолчанию все 6 СС связаны.
+    """
+    link_id:        int
+    master_node_id: int
+    slave_node_ids: list[int] = field(default_factory=list)
+    dof_flags:      tuple[bool, bool, bool, bool, bool, bool] = (
+        True, True, True, True, True, True)
+
+    # Человекочитаемое описание (не влияет на вывод в .mct)
+    description: str = ''
+
+
+@dataclass
+class Constraint:
+    """
+    Граничное условие (*CONSTRAINT в Midas Civil).
+
+    node_id  — узел.
+    flags    — кортеж из 7 значений: (Dx, Dy, Dz, Rx, Ry, Rz, тип).
+               1 = закреплено, 0 = свободно.
+               Последний элемент — тип опоры (0 = обычная, 1 = пружинная и т.п.).
+               По умолчанию: полное защемление без указания типа.
+    """
+    node_id: int
+    flags:   tuple[int, int, int, int, int, int, int] = (1, 1, 1, 1, 1, 1, 0)
+
+    description: str = ''
+
+
+# Стандартные маски ГУ
+CONSTRAINT_FULL   = (1, 1, 1, 1, 1, 1, 0)   # полное защемление
+CONSTRAINT_DZ_RZ  = (0, 0, 1, 0, 0, 1, 0)   # только Dz + Rz (низ свай)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Вспомогательные функции поиска узлов
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_COORD_TOL = 1e-6
+
+
+def _nodes_at_z(model: PierModel, z_target: float) -> list[int]:
+    """Возвращает id всех узлов с z ≈ z_target."""
+    return [
+        n.node_id
+        for n in model.nodes.values()
+        if math.isclose(n.z, z_target, abs_tol=_COORD_TOL)
+    ]
+
+
+def _node_at_xyz(model: PierModel, x: float, y: float, z: float) -> Optional[int]:
+    """Возвращает id узла с координатами (x, y, z) или None."""
+    key = _coord_key(x, y, z)
+    for n in model.nodes.values():
+        if _coord_key(n.x, n.y, n.z) == key:
+            return n.node_id
+    return None
+
+
+def _pile_top_nodes(model: PierModel, pier: PierGeometry) -> list[int]:
+    """
+    Возвращает id узлов верха каждой сваи.
+
+    «Верх сваи» — узел с максимальной z среди всех узлов с id >= node_offset_piles,
+    сгруппированных по (x, y).  Предполагается, что каждая свая — вертикальная
+    цепочка узлов с одинаковой (x, y).
+
+    Если сваи не заданы (нет узлов с id >= node_offset_piles) — возвращает [].
+    """
+    pile_nodes = [
+        n for n in model.nodes.values()
+        if n.node_id >= pier.node_offset_piles
+    ]
+    if not pile_nodes:
+        return []
+
+    # Группируем по дискретному ключу (x, y)
+    xy_groups: dict[tuple, list] = {}
+    for n in pile_nodes:
+        key = (round(n.x / _COORD_TOL), round(n.y / _COORD_TOL))
+        xy_groups.setdefault(key, []).append(n)
+
+    top_ids: list[int] = []
+    for nodes_in_pile in xy_groups.values():
+        top_node = max(nodes_in_pile, key=lambda n: n.z)
+        top_ids.append(top_node.node_id)
+
+    return sorted(top_ids)
+
+
+def _pile_bottom_nodes(model: PierModel, pier: PierGeometry) -> list[int]:
+    """
+    Возвращает id узлов низа каждой сваи (минимальная z для каждой (x,y)-группы).
+    """
+    pile_nodes = [
+        n for n in model.nodes.values()
+        if n.node_id >= pier.node_offset_piles
+    ]
+    if not pile_nodes:
+        return []
+
+    xy_groups: dict[tuple, list] = {}
+    for n in pile_nodes:
+        key = (round(n.x / _COORD_TOL), round(n.y / _COORD_TOL))
+        xy_groups.setdefault(key, []).append(n)
+
+    bot_ids: list[int] = []
+    for nodes_in_pile in xy_groups.values():
+        bot_node = min(nodes_in_pile, key=lambda n: n.z)
+        bot_ids.append(bot_node.node_id)
+
+    return sorted(bot_ids)
+
+
+def _pad_bottom_nodes(model: PierModel, pier: PierGeometry) -> list[int]:
+    """
+    Возвращает id узлов низа подферменников (z = pad_z_bottom) для всех рамок.
+
+    Узлы низа подферменников принадлежат диапазону node_offset_frame* и имеют
+    z == frame.pad_z_bottom. Исключаем ось (y=0) — там только ригель.
+    """
+    pad_bot_ids: list[int] = []
+
+    for frame in (pier.frame1, pier.frame2):
+        if frame is None or frame.pad_z_bottom is None:
+            continue
+
+        z_bot = frame.pad_z_bottom
+        x_fr = frame.x_coordinate
+
+        # Ищем узлы с нужными x и z, y ≠ 0 (не ось ригеля)
+        for n in model.nodes.values():
+            if (math.isclose(n.z, z_bot, abs_tol=_COORD_TOL)
+                    and math.isclose(n.x, x_fr, abs_tol=_COORD_TOL)
+                    and not math.isclose(n.y, 0.0, abs_tol=_COORD_TOL)):
+                pad_bot_ids.append(n.node_id)
+
+    return sorted(set(pad_bot_ids))
+
+
+def _crossbeam_top_node(model: PierModel, pier: PierGeometry) -> Optional[int]:
+    """
+    Возвращает id узла верха ригеля: x=0, y=0, z=crossbeam_z_top.
+    """
+    if pier.crossbeam_z_top is None:
+        return None
+    return _node_at_xyz(model, 0.0, 0.0, pier.crossbeam_z_top)
+
+
+def _footing_bottom_node(model: PierModel) -> Optional[int]:
+    """
+    Возвращает id узла низа ростверка: x=0, y=0, z=0.0.
+    Используется как мастер-узел RL-1 и как точка защемления (без свай).
+    """
+    return _node_at_xyz(model, 0.0, 0.0, 0.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
