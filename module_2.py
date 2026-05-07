@@ -15,6 +15,10 @@ from data_structures import (
     BearingPlaneRow, FrameParameters, FrameRLS,
     PierGeometry, SectionZone, PierModel, Node, Element,
 )
+from module_2_part3 import (
+    load_piles_for_pier, load_pier_body_for_pier,
+    PileLoadResult, MctLoadResult,
+)
 
 
 # ── Несимметричные подферменники ─────────────────────────────────────────────
@@ -86,6 +90,10 @@ class PierGeometryResult:
     model: Optional[PierModel]
     shaft_parts: list[ShaftPartResult] = field(default_factory=list)
     frame_results: list[FrameResult] = field(default_factory=list)
+    # Результат загрузки из .mct (заполняется только если geom_source='mct')
+    mct_body_result: Optional[MctLoadResult] = None
+    # Результат загрузки свай из .mct (заполняется если задан pile_mct_file_path)
+    pile_result: Optional[PileLoadResult] = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -779,18 +787,57 @@ def generate_pier_geometry(
         include_temp: bool = False,
 ) -> PierGeometryResult:
     """
-    Генерирует полную параметрическую геометрию опоры.
+    Генерирует полную геометрию опоры.
 
-    Часть 1 (стержень): ростверк → стойка → ригель.
-    Часть 2 (рамки):    подферменники → ОЧ → вертикали → горизонтали.
+    Для geom_source='parametric':
+        Часть 1 (стержень): ростверк → стойка → ригель.
+        Часть 2 (рамки):    подферменники → ОЧ → вертикали → горизонтали.
+
+    Для geom_source='mct':
+        Тело опоры целиком загружается из mct_file_path через load_pier_body_for_pier.
+        Параметрические части (стержень, рамки) не генерируются.
+
+    В обоих случаях, если задан pile_mct_file_path, сваи загружаются из файла.
 
     Не печатает ничего. Возвращает PierGeometryResult — данные для main.
-    result.model = None для опор с geom_source='mct'.
     """
+    # ── Вариант 1: геометрия из .mct файла ───────────────────────────────────
     if pier.geom_source == 'mct':
-        return PierGeometryResult(pier_name=pier.pier_name, model=None)
+        model = PierModel(pier_name=pier.pier_name)
+        mct_body_result: Optional[MctLoadResult] = None
+        pile_result: Optional[PileLoadResult] = None
 
-    # ── Часть 1 — стержень ───────────────────────────────────────────────────
+        try:
+            mct_body_result = load_pier_body_for_pier(model, pier)
+        except (FileNotFoundError, OSError) as exc:
+            # Возвращаем результат с пустой моделью и ошибкой в mct_body_result
+            err_result = MctLoadResult(
+                pier_name=pier.pier_name,
+                mct_path=pier.mct_file_path or '',
+            )
+            err_result.errors.append(str(exc))
+            return PierGeometryResult(
+                pier_name=pier.pier_name,
+                model=None,
+                mct_body_result=err_result,
+            )
+
+        # Загружаем сваи, если задан путь
+        if pier.pile_mct_file_path:
+            try:
+                pile_result = load_piles_for_pier(model, pier)
+            except (FileNotFoundError, OSError) as exc:
+                if mct_body_result is not None:
+                    mct_body_result.errors.append(f'Сваи: {exc}')
+
+        return PierGeometryResult(
+            pier_name=pier.pier_name,
+            model=model,
+            mct_body_result=mct_body_result,
+            pile_result=pile_result,
+        )
+
+    # ── Вариант 2: параметрическая геометрия ─────────────────────────────────
     coord_index: dict = {}
     model, shaft_parts = generate_shaft(pier)
 
@@ -804,9 +851,26 @@ def generate_pier_geometry(
         frame_results = generate_frames(model, pier, bearing_rows,
                                         include_temp, coord_index)
 
+    # ── Часть 3 — сваи (если задан путь) ─────────────────────────────────────
+    pile_result: Optional[PileLoadResult] = None
+    if pier.pile_mct_file_path:
+        try:
+            pile_result = load_piles_for_pier(model, pier)
+        except (FileNotFoundError, OSError) as exc:
+            # Не прерываем генерацию — ошибка будет видна в pile_result.errors
+            dummy = PileLoadResult(
+                pier_name=pier.pier_name,
+                mct_path=pier.pile_mct_file_path,
+                node_offset=pier.node_offset_piles,
+                elem_offset=pier.elem_offset_piles,
+            )
+            dummy.errors.append(str(exc))
+            pile_result = dummy
+
     return PierGeometryResult(
         pier_name=pier.pier_name,
         model=model,
         shaft_parts=shaft_parts,
         frame_results=frame_results,
+        pile_result=pile_result,
     )

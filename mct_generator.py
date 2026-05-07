@@ -20,6 +20,7 @@ from module_2 import (
     PierGeometryResult, ShaftPartResult, FrameResult, BearingMeta,
     _part_label,
 )
+from module_2_part3 import MctLoadResult, PileLoadResult
 from data_structures import PierModel
 
 
@@ -76,7 +77,7 @@ def print_shaft_report(result: PierGeometryResult) -> None:
     """
     model = result.model
     if model is None:
-        print(f'  Опора [{result.pier_name}]: geom_source=mct — геометрия из файла, пропуск')
+        print(f'  Опора [{result.pier_name}]: модель не построена — пропуск')
         return
 
     print(f'\n  Опора [{result.pier_name}] — стержень:')
@@ -248,6 +249,107 @@ def print_frames_report(result: PierGeometryResult) -> None:
         print(f'    Итого элементов рамки: {len(fr.elem_labels)}')
 
 
+def print_mct_body_report(result: PierGeometryResult) -> None:
+    """
+    Выводит в консоль отчёт по опоре, геометрия которой загружена из .mct файла.
+
+    Формат вывода:
+      — путь к файлу
+      — количество узлов, элементов, пружин
+      — диапазоны id узлов и элементов
+      — номера материалов и сечений, найденные в файле
+      — ошибки парсинга (если есть)
+    """
+    r = result.mct_body_result
+    if r is None:
+        return
+
+    sep = '─' * 58
+    print(f'\n  Опора [{result.pier_name}] — геометрия из .mct файла:')
+    print(f'    Файл: {r.mct_path}')
+
+    if not result.model or (r.n_nodes == 0 and r.n_elements == 0):
+        print(f'    ОШИБКА: модель не построена')
+        for e in r.errors:
+            print(f'      — {e}')
+        return
+
+    print(f'    {sep}')
+    print(f'    {"Узлы":.<30} {r.n_nodes}')
+    print(f'    {"Элементы":.<30} {r.n_elements}')
+    print(f'    {"Пружины":.<30} {r.n_springs}')
+    print(f'    {sep}')
+
+    node_range = (f'{r.node_id_min}…{r.node_id_max}'
+                  if r.node_id_min is not None else 'нет')
+    elem_range = (f'{r.elem_id_min}…{r.elem_id_max}'
+                  if r.elem_id_min is not None else 'нет')
+    print(f'    {"Диапазон id узлов":.<30} {node_range}')
+    print(f'    {"Диапазон id элементов":.<30} {elem_range}')
+    print(f'    {sep}')
+
+    mats = ', '.join(str(m) for m in r.material_numbers) if r.material_numbers else '—'
+    secs = ', '.join(str(s) for s in r.section_numbers) if r.section_numbers else '—'
+    print(f'    {"Номера материалов":.<30} {mats}')
+    print(f'    {"Номера сечений":.<30} {secs}')
+
+    if r.errors:
+        print(f'    {sep}')
+        print(f'    Предупреждения/ошибки ({len(r.errors)}):')
+        for e in r.errors[:10]:
+            print(f'      — {e}')
+        if len(r.errors) > 10:
+            print(f'      … ещё {len(r.errors) - 10} предупреждений')
+
+
+def print_pile_report(result: PierGeometryResult) -> None:
+    """
+    Выводит в консоль отчёт по сваям опоры, загруженным из .mct файла.
+
+    Вызывается для обоих типов опор (parametric и mct) если задан pile_mct_file_path.
+    """
+    pr = result.pile_result
+    if pr is None:
+        return
+
+    sep = '─' * 58
+    print(f'\n  Опора [{result.pier_name}] — сваи из .mct файла:')
+    print(f'    Файл: {pr.mct_path}')
+
+    if pr.n_nodes == 0 and pr.n_elements == 0:
+        print(f'    ОШИБКА: сваи не загружены')
+        for e in pr.errors:
+            print(f'      — {e}')
+        return
+
+    print(f'    {sep}')
+    print(f'    {"Узлы свай":.<30} {pr.n_nodes}')
+    print(f'    {"Элементы свай":.<30} {pr.n_elements}')
+    print(f'    {"Пружины (грунт)":.<30} {pr.n_springs}')
+    print(f'    {sep}')
+
+    node_range = (f'{pr.node_id_min}…{pr.node_id_max}'
+                  if pr.node_id_min is not None else 'нет')
+    elem_range = (f'{pr.elem_id_min}…{pr.elem_id_max}'
+                  if pr.elem_id_min is not None else 'нет')
+    print(f'    {"Диапазон id узлов":.<30} {node_range}')
+    print(f'    {"Диапазон id элементов":.<30} {elem_range}')
+    print(f'    {sep}')
+
+    mats = ', '.join(str(m) for m in pr.material_numbers) if pr.material_numbers else '—'
+    secs = ', '.join(str(s) for s in pr.section_numbers) if pr.section_numbers else '—'
+    print(f'    {"Номера материалов":.<30} {mats}')
+    print(f'    {"Номера сечений":.<30} {secs}')
+
+    if pr.errors:
+        print(f'    {sep}')
+        print(f'    Предупреждения/ошибки ({len(pr.errors)}):')
+        for e in pr.errors[:10]:
+            print(f'      — {e}')
+        if len(pr.errors) > 10:
+            print(f'      … ещё {len(pr.errors) - 10} предупреждений')
+
+
 def main():
     # Для запуска из IDE раскомментируйте и укажите путь:
     # sys.argv = ['mct_generator.py', r'D:\путь\к\seismic_input.xlsx']
@@ -381,8 +483,15 @@ def main():
 
     # ── Вывод результатов Модуля 2 ───────────────────────────────────────────
     for pier_name, result in pier_results.items():
-        print_shaft_report(result)
-        print_frames_report(result)
+        if result.mct_body_result is not None:
+            # Опора загружена из .mct — показываем специальный отчёт
+            print_mct_body_report(result)
+        else:
+            # Параметрическая опора — показываем отчёт по стержню и рамкам
+            print_shaft_report(result)
+            print_frames_report(result)
+        # Сваи выводим в любом случае (если они есть)
+        print_pile_report(result)
 
     successful = sum(1 for r in pier_results.values() if r.model is not None)
     failed     = len(pier_results) - successful

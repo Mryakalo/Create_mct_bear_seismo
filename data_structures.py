@@ -325,15 +325,37 @@ class FrameRLS:
 
 
 @dataclass
+class SpringSupport:
+    """
+    Упругая опора (*SPRING в Midas Civil).
+
+    Привязана к узлу node_id.
+    spring_type  — тип пружины ('LINEAR', 'NONLINEAR', ...).
+    sdx, sdy     — жёсткости по X и Y (тс/м).
+    sdz          — жёсткость по Z.
+    srx, sry, srz — жёсткости вращения.
+    group_id     — номер группы (если задан).
+    raw_tail     — остаток строки после sdz до конца (хранится «как есть»
+                   для точного воспроизведения формата Midas Civil).
+    """
+    node_id:    int
+    spring_type: str
+    sdx:        float
+    sdy:        float
+    raw_tail:   str   # всё после sdy — хранится дословно для вывода в .mct
+
+
+@dataclass
 class PierModel:
     """
     Полная КЭ-модель одной опоры.
     Часть 1 заполняет nodes, elements, ts_groups.
     Часть 2 добавляет рамки (frame_rls).
-    Части 3–N добавят сваи и т.д.
+    Часть 3 добавляет сваи (nodes, elements) и пружины (springs).
     """
     pier_name:  str
-    nodes:      dict[int, Node]      = field(default_factory=dict)  # node_id → Node
-    elements:   dict[int, Element]   = field(default_factory=dict)  # elem_id → Element
-    ts_groups:  dict[int, TsGroup]   = field(default_factory=dict)  # group_number → TsGroup
-    frame_rls:  dict[int, FrameRLS]  = field(default_factory=dict)  # elem_id → FrameRLS
+    nodes:      dict[int, Node]          = field(default_factory=dict)  # node_id → Node
+    elements:   dict[int, Element]       = field(default_factory=dict)  # elem_id → Element
+    ts_groups:  dict[int, TsGroup]       = field(default_factory=dict)  # group_number → TsGroup
+    frame_rls:  dict[int, FrameRLS]      = field(default_factory=dict)  # elem_id → FrameRLS
+    springs:    dict[int, SpringSupport] = field(default_factory=dict)  # node_id → SpringSupport
