@@ -16,13 +16,13 @@ from module_1 import read_all_input_data, validate_input_data
 import math
 
 from module_2 import (
-    generate_pier_geometry, test_frame_part2,
-    PierGeometryResult, ShaftPartResult, FrameResult, BearingMeta,
+    generate_pier_geometry,
+    PierGeometryResult,
     _part_label,
 )
-from module_2_part3 import MctLoadResult, PileLoadResult
-from module_2_part4 import Part4Result, print_part4_report
-from data_structures import PierModel
+
+from module_2_part_4 import print_part4_report
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -2,7 +2,7 @@
 #  Тесты Части 3
 # ═══════════════════════════════════════════════════════════════════════════════
 from data_structures import PierModel
-from module_2_part3 import load_piles_from_mct, _parse_mct, _sort_key_for_node, load_pier_body_from_mct
+from module_2_part_3 import load_piles_from_mct, _parse_mct, _sort_key_for_node, load_pier_body_from_mct
 
 
 def test_pile_part3(mct_path: str, node_offset: int = 1001, elem_offset: int = 1001) -> bool:

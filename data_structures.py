@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Структуры данных для модуля 1
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -271,6 +272,59 @@ class SoilInfluence:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Структуры данных для модуля 2
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class ShaftPartResult:
+    """Итог мешинга одной части стержня (для вывода в main)."""
+    name: str
+    z_bottom: float
+    z_top: float
+    n_nodes: int
+    n_elems: int
+    elem_offset: int
+
+
+@dataclass
+class BearingMeta:
+    """Метаданные одной опорной части (для вывода в main)."""
+    side: str  # 'правая (+Y)' / 'левая (−Y)'
+    bn: Optional[int]
+    x: float
+    y: float
+    z_bot: float  # z верха подферменника
+    z_top: float  # z_hinge
+    height: float
+    type_x: str  # fixed / movable
+    type_y: str
+
+
+@dataclass
+class FrameResult:
+    """Итог построения одной рамки (для вывода в main)."""
+    frame_number: int
+    x_coordinate: float
+    pad_z_bottom: float
+    pad_z_top: float
+    pad_y_half_width: float  # оставлено для обратной совместимости (среднее или симм. значение)
+    pad_y_right: float  # Y правого подферменника (+Y сторона)
+    pad_y_left: float  # Y левого подферменника  (−Y сторона, хранится как положительное)
+    pad_section: int
+    pad_material: int
+    bearing_section: int
+    bearing_material: int
+    frame_section: int
+    frame_material: int
+    z_hinge: float
+    z_cg: float
+    z_road: float
+    include_temp: bool
+    n_nodes: int
+    n_elems: int
+    bearing_metas: list[BearingMeta]
+    elem_labels: list[tuple[int, str]]  # [(elem_id, sublabel), ...]
+
+
 
 @dataclass
 class Node:

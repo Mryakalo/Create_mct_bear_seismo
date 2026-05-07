@@ -1,5 +1,5 @@
 """
-module_2_part4.py — Часть 4 модуля 2: RigidLink, Constraints, Hinges
+module_2_part_4.py — Часть 4 модуля 2: RigidLink, Constraints, Hinges
 
 RigidLink
 ---------
