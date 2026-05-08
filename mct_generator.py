@@ -23,6 +23,12 @@ from module_2 import (
 
 from module_2_part_4 import print_part4_report
 
+from module_3_part1 import (
+    build_all_load_assignments,
+    print_module3_report,
+    PierLoadAssignment,
+)
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -501,6 +507,24 @@ def main():
     failed     = len(pier_results) - successful
     print(f'\nМодуль 2 завершён: {successful} опор обработано'
           + (f', {failed} с ошибками' if failed else '') + '.')
+
+    # ── Модуль 3, Часть 1: соответствие масс и нагрузок координатам ──────────
+    print('\n' + '═' * 60)
+    print('Модуль 3 (Часть 1) — координаты масс и нагрузок')
+    print('═' * 60)
+
+    load_assignments: dict[str, PierLoadAssignment] = build_all_load_assignments(
+        piers           = piers_to_calc,
+        all_masses_rows = all_data['masses'],
+        all_plety_rows  = all_data['plety'],
+    )
+
+    print_module3_report(load_assignments)
+
+    m3_ok   = sum(1 for a in load_assignments.values() if not a.warnings)
+    m3_warn = sum(1 for a in load_assignments.values() if a.warnings)
+    print(f'\nМодуль 3 (Часть 1) завершён: {m3_ok} опор без замечаний'
+          + (f', {m3_warn} с предупреждениями' if m3_warn else '') + '.')
 
 
 if __name__ == '__main__':

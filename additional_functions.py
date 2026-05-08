@@ -1,7 +1,8 @@
 import math
 from typing import Optional
 
-from data_structures import PierModel, Node, TsGroup
+from data_structures import PierModel, Node, TsGroup, BearingPlaneRow, FrameParameters, PierGeometry, MassesRow, \
+    LoadPoint
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -171,3 +172,210 @@ def _add_ts_group_element(model: PierModel, group_number: int, elem_id: int) -> 
     if group_number not in model.ts_groups:
         model.ts_groups[group_number] = TsGroup(group_number=group_number)
     model.ts_groups[group_number].elem_ids.append(elem_id)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Внутренние вспомогательные функции
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _plety_rows_for_pier(bearing_plane_rows: list[BearingPlaneRow],
+                         pier_name: str) -> list[BearingPlaneRow]:
+    """
+    Возвращает все строки листа «Плеть» для указанной опоры.
+
+    Граничная опора двух плетей встречается дважды с разными bearing_number,
+    поэтому bearing_number уникально идентифицирует нужную строку внутри
+    отфильтрованного по pier_name подмножества.
+    """
+    return [row for row in bearing_plane_rows if row.pier_name == pier_name]
+
+
+def _find_plety_row(candidate_rows: list[BearingPlaneRow],
+                    bearing_number: Optional[int],
+                    side: str) -> Optional[BearingPlaneRow]:
+    """
+    Находит строку BearingPlaneRow внутри диапазона, где номер ОЧ
+    совпадает с bearing_number.
+
+    side='right' → ищем по r_bearing_no
+    side='left'  → ищем по l_bearing_no
+    """
+    for row in candidate_rows:
+        ref = row.right_bearing_number if side == 'right' else row.left_bearing_number
+        if ref == bearing_number:
+            return row
+    return None
+
+
+def _frame_x_global(frame: FrameParameters, pier: PierGeometry) -> float:
+    """X-координата рамки в локальной системе опоры (без аффинного преобразования)."""
+    return frame.x_coordinate
+
+
+def _pad_y_global(frame: FrameParameters, side: str, pier: PierGeometry) -> float:
+    """
+    Y-координата подферменника в локальной системе опоры (без аффинного преобразования).
+
+    side='right' → +pad_y_right  (+Y сторона)
+    side='left'  → −pad_y_left   (pad_y_left > 0, направление −Y)
+    """
+    return frame.pad_y_right if side == 'right' else -abs(frame.pad_y_left)
+
+
+def _lookup_node_id(
+    coord_index: dict,
+    x: float,
+    y: float,
+    z: Optional[float],
+    label: str,
+    pier_name: str,
+) -> Optional[int]:
+    """
+    Ищет узел по координатам (x, y, z) в coord_index.
+
+    coord_index — словарь {_coord_key(x, y, z): node_id}, построенный
+    в generate_pier_geometry после generate_shaft.
+
+    Возвращает node_id или None.
+    Если z is None или узел не найден — печатает предупреждение в консоль.
+    """
+    if z is None:
+        print(
+            f'  ⚠  [{pier_name}] {label}: z-отметка не определена, '
+            f'узел не может быть найден (x={x:.3f}, y={y:+.3f})'
+        )
+        return None
+
+    key = _coord_key(x, y, z)
+    node_id = coord_index.get(key)
+
+    if node_id is None:
+        print(
+            f'  ⚠  [{pier_name}] {label}: узел не найден в модели '
+            f'(x={x:.3f}, y={y:+.3f}, z={z:.3f})'
+        )
+
+    return node_id
+
+
+def _build_load_point(pier: PierGeometry,
+                      frame: FrameParameters,
+                      masses_row: MassesRow,
+                      plety_row: BearingPlaneRow,
+                      side: str,
+                      frame_number: int) -> LoadPoint:
+    """
+    Собирает один LoadPoint из всех источников данных.
+
+    Параметры:
+      pier         — геометрия опоры (frame1/2); аффинное преобразование не применяется
+      frame        — параметры рамки (x_coordinate, pad_y_*)
+      masses_row   — строка листа «Массы» (массы и z-отметки)
+      plety_row    — строка листа «Плеть» (нагрузки R, тип ОЧ)
+      side         — 'right' (+Y) | 'left' (−Y)
+      frame_number — 1 или 2
+
+    Разрешение z-отметок:
+      z_load_permanent ← my_z   (z_cg)  — уровень ЦТ пролётного строения
+      z_load_temporary ← my_t_z (z_road) — уровень проезжей части
+      z_mass_X_perm    ← mx_z   (z_hinge)
+      z_mass_Y_perm    ← my_z   (z_cg)
+      z_mass_Z_perm    ← mz_z   (z_cg),   если нет — my_z
+      z_mass_X_temp    ← mx_t_z (z_hinge), если нет — mx_z
+      z_mass_Y_temp    ← my_t_z (z_road),  если нет — z_road «Плети»
+      z_mass_Z_temp    ← mz_t_z (z_road),  если нет — z_road «Плети»
+    """
+    if side == 'right':
+        bearing_number = masses_row.right_bearing_number
+        mass_X_perm    = masses_row.right_mass_X_permanent
+        mass_Y_perm    = masses_row.right_mass_Y_permanent
+        mass_Z_perm    = masses_row.right_mass_Z_permanent
+        mass_X_temp    = masses_row.right_mass_X_temporary
+        mass_Y_temp    = masses_row.right_mass_Y_temporary
+        mass_Z_temp    = masses_row.right_mass_Z_temporary
+        # z-отметки из «Масс» (постоянные)
+        mx_z   = masses_row.right_mass_X_z           # z_hinge
+        my_z   = masses_row.right_mass_Y_z           # z_cg
+        mz_z   = getattr(masses_row, 'right_mass_Z_z',      None)  # z_cg
+        # z-отметки из «Масс» (временные)
+        mx_t_z = getattr(masses_row, 'right_mass_X_temp_z', None)  # z_hinge
+        my_t_z = getattr(masses_row, 'right_mass_Y_temp_z', None)  # z_road
+        mz_t_z = getattr(masses_row, 'right_mass_Z_temp_z', None)  # z_road
+        # нагрузки и тип ОЧ
+        load_perm      = plety_row.right_load_permanent
+        load_temp      = plety_row.right_load_temporary
+        bearing_type_X = plety_row.right_bearing_type_X
+        bearing_type_Y = plety_row.right_bearing_type_Y
+    else:
+        bearing_number = masses_row.left_bearing_number
+        mass_X_perm    = masses_row.left_mass_X_permanent
+        mass_Y_perm    = masses_row.left_mass_Y_permanent
+        mass_Z_perm    = masses_row.left_mass_Z_permanent
+        mass_X_temp    = masses_row.left_mass_X_temporary
+        mass_Y_temp    = masses_row.left_mass_Y_temporary
+        mass_Z_temp    = masses_row.left_mass_Z_temporary
+        # z-отметки из «Масс» (постоянные)
+        mx_z   = masses_row.left_mass_X_z            # z_hinge
+        my_z   = masses_row.left_mass_Y_z            # z_cg
+        mz_z   = getattr(masses_row, 'left_mass_Z_z',      None)   # z_cg
+        # z-отметки из «Масс» (временные)
+        mx_t_z = getattr(masses_row, 'left_mass_X_temp_z', None)   # z_hinge
+        my_t_z = getattr(masses_row, 'left_mass_Y_temp_z', None)   # z_road
+        mz_t_z = getattr(masses_row, 'left_mass_Z_temp_z', None)   # z_road
+        # нагрузки и тип ОЧ
+        load_perm      = plety_row.left_load_permanent
+        load_temp      = plety_row.left_load_temporary
+        bearing_type_X = plety_row.left_bearing_type_X
+        bearing_type_Y = plety_row.left_bearing_type_Y
+
+    # ── Разрешение z-отметок ─────────────────────────────────────────────────
+    #
+    # Вертикальные нагрузки:
+    #   R_пост → z_cg   (уровень ЦТ пролётного строения)
+    #   R_врем → z_road (уровень проезжей части)
+    z_load_permanent = my_z   if my_z   is not None else plety_row.z_cg_elevation
+    z_load_temporary = my_t_z if my_t_z is not None else plety_row.z_road_elevation
+
+    # Постоянные массы
+    z_mass_X_perm = mx_z  if mx_z  is not None else plety_row.z_hinge_elevation
+    z_mass_Y_perm = my_z  if my_z  is not None else plety_row.z_cg_elevation
+    z_mass_Z_perm = (mz_z if mz_z  is not None else
+                     my_z if my_z  is not None else plety_row.z_cg_elevation)
+
+    # Временные массы
+    z_mass_X_temp = (mx_t_z if mx_t_z is not None else
+                     mx_z   if mx_z   is not None else plety_row.z_hinge_elevation)
+    z_mass_Y_temp = my_t_z if my_t_z is not None else plety_row.z_road_elevation
+    z_mass_Z_temp = mz_t_z if mz_t_z is not None else plety_row.z_road_elevation
+
+    return LoadPoint(
+        pier_name      = pier.pier_name,
+        bearing_number = bearing_number,
+        side           = side,
+        frame_number   = frame_number,
+
+        x = _frame_x_global(frame, pier),
+        y = _pad_y_global(frame, side, pier),
+
+        z_load_permanent = z_load_permanent,
+        z_load_temporary = z_load_temporary,
+        z_mass_X_perm    = z_mass_X_perm,
+        z_mass_Y_perm    = z_mass_Y_perm,
+        z_mass_Z_perm    = z_mass_Z_perm,
+        z_mass_X_temp    = z_mass_X_temp,
+        z_mass_Y_temp    = z_mass_Y_temp,
+        z_mass_Z_temp    = z_mass_Z_temp,
+
+        load_permanent = load_perm,
+        load_temporary = load_temp,
+
+        mass_X_permanent = mass_X_perm,
+        mass_Y_permanent = mass_Y_perm,
+        mass_Z_permanent = mass_Z_perm,
+
+        mass_X_temporary = mass_X_temp,
+        mass_Y_temporary = mass_Y_temp,
+        mass_Z_temporary = mass_Z_temp,
+
+        bearing_type_X = bearing_type_X,
+        bearing_type_Y = bearing_type_Y,
+    )

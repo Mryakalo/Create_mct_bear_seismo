@@ -431,3 +431,197 @@ class PierModel:
     ts_groups:  dict[int, TsGroup]       = field(default_factory=dict)  # group_number → TsGroup
     frame_rls:  dict[int, FrameRLS]      = field(default_factory=dict)  # elem_id → FrameRLS
     springs:    dict[int, SpringSupport] = field(default_factory=dict)  # node_id → SpringSupport
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Внутренние структуры для хранения «сырых» данных из .mct
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class _RawNode:
+    orig_id: int
+    x: float
+    y: float
+    z: float
+
+
+@dataclass
+class _RawElement:
+    orig_id: int
+    elem_type: str   # 'BEAM', и т.д.
+    section:   int
+    material:  int
+    node_i:    int   # оригинальный id
+    node_j:    int   # оригинальный id
+    beta:      int   # угол бета (последнее поле строки элемента)
+
+
+@dataclass
+class _RawSpring:
+    orig_node_id: int
+    spring_type:  str
+    sdx:          float
+    sdy:          float
+    raw_tail:     str   # всё после sdy — дословно
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Результирующие структуры (для вывода в main/mct_generator)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class PileLoadResult:
+    """Итог импорта свай из .mct файла (для вывода в main)."""
+    pier_name:      str
+    mct_path:       str
+    n_nodes:        int = 0
+    n_elements:     int = 0
+    n_springs:      int = 0
+    node_offset:    int = 0
+    elem_offset:    int = 0
+    # Диапазоны новых id после перенумерации
+    node_id_min:      Optional[int] = None
+    node_id_max:      Optional[int] = None
+    elem_id_min:      Optional[int] = None
+    elem_id_max:      Optional[int] = None
+    # Уникальные номера материалов и сечений (отсортированы)
+    material_numbers: list[int] = field(default_factory=list)
+    section_numbers:  list[int] = field(default_factory=list)
+    errors:           list[str] = field(default_factory=list)
+
+
+@dataclass
+class MctLoadResult:
+    """
+    Итог импорта тела опоры из .mct файла (geom_source='mct').
+
+    Содержит полную статистику для вывода в main:
+      - количество узлов, элементов, пружин
+      - уникальные номера материалов и сечений из *ELEMENT
+      - диапазоны id узлов и элементов в модели
+    """
+    pier_name:        str
+    mct_path:         str
+    n_nodes:          int       = 0
+    n_elements:       int       = 0
+    n_springs:        int       = 0
+    node_offset:      int       = 0
+    elem_offset:      int       = 0
+    node_id_min:      Optional[int] = None
+    node_id_max:      Optional[int] = None
+    elem_id_min:      Optional[int] = None
+    elem_id_max:      Optional[int] = None
+    # Уникальные номера материалов и сечений (отсортированы)
+    material_numbers: list[int] = field(default_factory=list)
+    section_numbers:  list[int] = field(default_factory=list)
+    errors:           list[str] = field(default_factory=list)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структуры данных Модуля 3, Часть 1
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class LoadPoint:
+    """
+    Одна точка приложения нагрузки/массы на опору.
+
+    Координаты x, y общие для всех нагрузок и масс данной ОЧ.
+    Каждая нагрузка и каждая масса прикладывается на своей z-отметке:
+
+      Вертикальные нагрузки:
+        z_load_permanent  — z_cg   (уровень ЦТ пролётного строения)
+        z_load_temporary  — z_road (уровень проезжей части)
+
+      Сейсмические массы — постоянная часть:
+        z_mass_X_perm  — z_hinge (из «Масс»: r_mx_z)
+        z_mass_Y_perm  — z_cg    (из «Масс»: r_my_z)
+        z_mass_Z_perm  — z_cg    (из «Масс»: r_mz_z)
+
+      Сейсмические массы — временная часть:
+        z_mass_X_temp  — z_hinge (из «Масс»: r_mx_t_z)
+        z_mass_Y_temp  — z_road  (из «Масс»: r_my_t_z)
+        z_mass_Z_temp  — z_road  (из «Масс»: r_mz_t_z)
+
+    Единицы: масса — тс·с²/м; нагрузка — тс.
+    Силы трения не используются.
+    """
+    pier_name:      str
+    bearing_number: Optional[int]   # номер ОЧ в Excel (1–4)
+    side:           str             # 'right' (+Y) | 'left' (−Y)
+    frame_number:   int             # 1 или 2
+
+    # ── Координаты (x, y — локальные, без аффинного преобразования) ─────────
+    x:   float                      # вдоль пролёта
+    y:   float                      # поперёк (+Y правая, −Y левая)
+
+    # ── z-отметки вертикальных нагрузок ─────────────────────────────────────
+    z_load_permanent: Optional[float]  # z_cg   — уровень ЦТ пролётного строения
+    z_load_temporary: Optional[float]  # z_road — уровень проезжей части
+
+    # ── z-отметки сейсмических масс ─────────────────────────────────────────
+    # Постоянные массы
+    z_mass_X_perm:  Optional[float]  # z_hinge (r_mx_z)
+    z_mass_Y_perm:  Optional[float]  # z_cg    (r_my_z)
+    z_mass_Z_perm:  Optional[float]  # z_cg    (r_mz_z)
+
+    # Временные массы
+    z_mass_X_temp:  Optional[float]  # z_hinge (r_mx_t_z)
+    z_mass_Y_temp:  Optional[float]  # z_road  (r_my_t_z)
+    z_mass_Z_temp:  Optional[float]  # z_road  (r_mz_t_z)
+
+    # ── Вертикальные нагрузки (тс) ───────────────────────────────────────────
+    load_permanent: float = 0.0     # R_пост @ z_load_permanent = z_cg
+    load_temporary: float = 0.0     # R_врем @ z_load_temporary = z_road
+
+    # ── Сейсмические массы, постоянная часть (тс·с²/м) ──────────────────────
+    mass_X_permanent: float = 0.0   # @ z_mass_X_perm (z_hinge)
+    mass_Y_permanent: float = 0.0   # @ z_mass_Y_perm (z_cg)
+    mass_Z_permanent: float = 0.0   # @ z_mass_Z_perm (z_cg)
+
+    # ── Сейсмические массы, временная часть (тс·с²/м) ───────────────────────
+    mass_X_temporary: float = 0.0   # @ z_mass_X_temp (z_hinge)
+    mass_Y_temporary: float = 0.0   # @ z_mass_Y_temp (z_road)
+    mass_Z_temporary: float = 0.0   # @ z_mass_Z_temp (z_road)
+
+    # ── Тип ОЧ ──────────────────────────────────────────────────────────────
+    bearing_type_X: str = 'fixed'   # fixed / movable
+    bearing_type_Y: str = 'fixed'
+
+    # ── Номера узлов КЭ-модели (заполняются в Части 1 по coord_index) ────────
+    # None означает, что узел с нужными координатами не найден в модели.
+    node_id_load_permanent: Optional[int] = None  # узел @ (x, y, z_load_permanent)
+    node_id_load_temporary: Optional[int] = None  # узел @ (x, y, z_load_temporary)
+    node_id_mass_X_perm:    Optional[int] = None  # узел @ (x, y, z_mass_X_perm)
+    node_id_mass_Y_perm:    Optional[int] = None  # узел @ (x, y, z_mass_Y_perm)
+    node_id_mass_Z_perm:    Optional[int] = None  # узел @ (x, y, z_mass_Z_perm)
+    node_id_mass_X_temp:    Optional[int] = None  # узел @ (x, y, z_mass_X_temp)
+    node_id_mass_Y_temp:    Optional[int] = None  # узел @ (x, y, z_mass_Y_temp)
+    node_id_mass_Z_temp:    Optional[int] = None  # узел @ (x, y, z_mass_Z_temp)
+
+    # ── Псевдонимы ───────────────────────────────────────────────────────────
+    @property
+    def z_cg(self) -> Optional[float]:
+        """Псевдоним → z_load_permanent (уровень ЦТ пролёта)."""
+        return self.z_load_permanent
+
+    @property
+    def z_road(self) -> Optional[float]:
+        """Псевдоним → z_load_temporary (уровень проезжей части)."""
+        return self.z_load_temporary
+
+    @property
+    def z_hinge(self) -> Optional[float]:
+        """Псевдоним → z_mass_X_perm (уровень шарнира ОЧ)."""
+        return self.z_mass_X_perm
+
+
+@dataclass
+class PierLoadAssignment:
+    """
+    Результат Части 1 для одной опоры:
+    все точки приложения нагрузок и масс с координатами.
+
+    Передаётся в Часть 2 (генерация команд .mct) без изменений.
+    """
+    pier_name:   str
+    load_points: list[LoadPoint] = field(default_factory=list)
+    warnings:    list[str]       = field(default_factory=list)
