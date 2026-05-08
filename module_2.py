@@ -45,6 +45,10 @@ class PierGeometryResult:
     pile_result: Optional[PileLoadResult] = None
     # Результат Части 4 — RigidLink, Constraints, Hinges
     part4_result: Optional['Part4Result'] = None
+    # Индекс координат узлов в ЛОКАЛЬНОЙ системе (до аффинного преобразования).
+    # Ключ: _coord_key(x_local, y_local, z_local) → node_id.
+    # Используется в Модуле 3 для поиска узла по координатам точки приложения нагрузки.
+    coord_index: dict = field(default_factory=dict)
 
 # ── Таблица элементов стержня и рамок ─────────────────────────────────────────
 # Функции форматирования вынесены в mct_generator.py (print_shaft_report,
@@ -142,6 +146,11 @@ def generate_pier_geometry(
     if has_frames and bearing_rows is not None:
         frame_results = generate_frames(model, pier, bearing_rows,
                                         include_temp, coord_index)
+        # Узлы рамок (подферменники, ОЧ, вертикали, горизонтали) добавлены
+        # в model.nodes внутри generate_frames — обновляем coord_index, чтобы
+        # _lookup_node_id мог найти узлы с Y ≠ 0 (левые и правые подферменники).
+        for node in model.nodes.values():
+            coord_index[_coord_key(node.x, node.y, node.z)] = node.node_id
 
     # ── Часть 3 — сваи (если задан путь) ─────────────────────────────────────
     pile_result: Optional[PileLoadResult] = None
@@ -169,4 +178,5 @@ def generate_pier_geometry(
         frame_results=frame_results,
         pile_result=pile_result,
         part4_result=part4_result,
+        coord_index=coord_index,
     )

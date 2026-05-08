@@ -517,6 +517,11 @@ def main():
         piers           = piers_to_calc,
         all_masses_rows = all_data['masses'],
         all_plety_rows  = all_data['plety'],
+        coord_indices   = {
+            name: r.coord_index
+            for name, r in pier_results.items()
+            if r.coord_index
+        },
     )
 
     print_module3_report(load_assignments)

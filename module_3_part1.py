@@ -51,11 +51,10 @@ from typing import Optional
 
 from additional_functions import (
     _plety_rows_for_pier, _find_plety_row, _build_load_point, _lookup_node_id,
-    _coord_key as _node_coord_key,
 )
 from data_structures import (
     MassesRow, BearingPlaneRow, PierGeometry, FrameParameters,
-    PierLoadAssignment, PierModel,
+    PierLoadAssignment,
 )
 
 
@@ -67,7 +66,7 @@ def build_load_assignments(
     pier:            PierGeometry,
     all_masses_rows: list[MassesRow],
     all_plety_rows:  list[BearingPlaneRow],
-    model:           Optional[PierModel] = None,
+    coord_index:     Optional[dict] = None,
 ) -> PierLoadAssignment:
     """
     Строит PierLoadAssignment для одной опоры.
@@ -79,9 +78,13 @@ def build_load_assignments(
       3. Для каждой стороны (right / left) ищем строку «Плети» по
          span_group_row_start/end и bearing_number.
       4. Строим LoadPoint с координатами и значениями.
-      5. Если передана model — резолвим node_id для каждой z-отметки
-         по coord_index; узлы, не найденные в модели, дают None
-         и предупреждение в консоль.
+      5. Если передан coord_index (локальный индекс из PierGeometryResult) —
+         резолвим node_id для каждой z-отметки; узлы, не найденные в модели,
+         дают None и предупреждение в консоль.
+
+    coord_index — словарь {_coord_key(x_local, y_local, z_local): node_id},
+    берётся напрямую из PierGeometryResult.coord_index. Координаты в нём
+    локальные (до аффинного преобразования), что совпадает с lp.x / lp.y.
     """
     result = PierLoadAssignment(pier_name=pier.pier_name)
 
@@ -149,11 +152,7 @@ def build_load_assignments(
             )
 
             # ── Шаг 5: резолвинг node_id по coord_index ──────────────────────
-            if model is not None:
-                coord_index = {
-                    _node_coord_key(n): nid
-                    for nid, n in model.nodes.items()
-                }
+            if coord_index is not None:
                 lp_label = (
                     f'frame{frame_number} {side} ОЧ№{lp.bearing_number}'
                 )
@@ -199,7 +198,7 @@ def build_all_load_assignments(
     piers:           list[PierGeometry],
     all_masses_rows: list[MassesRow],
     all_plety_rows:  list[BearingPlaneRow],
-    models:          Optional[dict[str, PierModel]] = None,
+    coord_indices:   Optional[dict[str, dict]] = None,
 ) -> dict[str, PierLoadAssignment]:
     """
     Строит PierLoadAssignment для всех опор проекта.
@@ -207,13 +206,14 @@ def build_all_load_assignments(
     Возвращает словарь {pier_name: PierLoadAssignment}.
     Опоры с calculate=False пропускаются.
 
-    models — опциональный словарь {pier_name: PierModel}; если передан,
-    для каждой опоры резолвятся node_id в LoadPoint.
+    coord_indices — опциональный словарь {pier_name: coord_index},
+    где coord_index берётся из PierGeometryResult.coord_index.
+    Если передан — для каждого LoadPoint резолвятся node_id.
     """
     return {
         pier.pier_name: build_load_assignments(
             pier, all_masses_rows, all_plety_rows,
-            model=models.get(pier.pier_name) if models else None,
+            coord_index=coord_indices.get(pier.pier_name) if coord_indices else None,
         )
         for pier in piers
         if pier.calculate

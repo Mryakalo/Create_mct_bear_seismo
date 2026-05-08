@@ -235,6 +235,14 @@ def _lookup_node_id(
     coord_index — словарь {_coord_key(x, y, z): node_id}, построенный
     в generate_pier_geometry после generate_shaft.
 
+    Алгоритм поиска:
+      1. Точное совпадение по дискретизированному ключу (x, y, z).
+      2. Если точного совпадения нет — ищем ближайший узел среди всех,
+         у кого (x, y) совпадают с допуском _COORD_TOL, и выбираем тот,
+         у кого |z_узла - z| минимально. Это необходимо, т.к. нагрузки
+         прикладываются на уровнях z_hinge/z_cg/z_road, которые не всегда
+         совпадают с z-отметками узлов модели с точностью до 1e-6 м.
+
     Возвращает node_id или None.
     Если z is None или узел не найден — печатает предупреждение в консоль.
     """
@@ -245,16 +253,44 @@ def _lookup_node_id(
         )
         return None
 
+    # ── Шаг 1: точное совпадение ─────────────────────────────────────────────
     key = _coord_key(x, y, z)
     node_id = coord_index.get(key)
+    if node_id is not None:
+        return node_id
 
-    if node_id is None:
+    # ── Шаг 2: ближайший узел с совпадающими (x, y) ─────────────────────────
+    # Дискретизированные (x, y) целевой точки — для фильтрации по плоскости.
+    scale = round(1.0 / _COORD_TOL)
+    ix_target = round(x * scale)
+    iy_target = round(y * scale)
+
+    best_node_id: Optional[int] = None
+    best_dz = float('inf')
+
+    for (ix, iy, iz), nid in coord_index.items():
+        if ix != ix_target or iy != iy_target:
+            continue
+        dz = abs(iz - round(z * scale))
+        if dz < best_dz:
+            best_dz = dz
+            best_node_id = nid
+
+    if best_node_id is not None:
+        # Вычисляем реальное расстояние по Z для сообщения
+        best_dz_m = best_dz * _COORD_TOL
         print(
-            f'  ⚠  [{pier_name}] {label}: узел не найден в модели '
-            f'(x={x:.3f}, y={y:+.3f}, z={z:.3f})'
+            f'  ℹ  [{pier_name}] {label}: точный узел не найден, '
+            f'использован ближайший по Z (x={x:.3f}, y={y:+.3f}, '
+            f'z_запрос={z:.3f}, Δz={best_dz_m:.4f} м) → node {best_node_id}'
         )
+        return best_node_id
 
-    return node_id
+    print(
+        f'  ⚠  [{pier_name}] {label}: узел не найден в модели '
+        f'(x={x:.3f}, y={y:+.3f}, z={z:.3f})'
+    )
+    return None
 
 
 def _build_load_point(pier: PierGeometry,
