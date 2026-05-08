@@ -221,22 +221,40 @@ class SoilInfluence:
     Оба направления используют общие γ и φ, но могут иметь
     разные зоны по высоте (z_surface, z_bottom).
 
-    Ширина сечения для эпюры давления задаётся отдельно для каждой
-    части опоры (ростверк / стойка / свая) и постоянна по высоте.
+    Площади сечений задаются посекционно (до 2 зон для ростверка,
+    до 3 зон для стойки) — соответствует структуре листа «Грунт».
+    Ширина сечения для эпюры давления также задаётся по зонам.
     """
     pier_name:                   str = ''
 
-    # Площади сечений (для масс воды и разжижения)
-    footing_area_top:            Optional[float] = None   # S ростверка вверху, м²
-    footing_area_bottom:         Optional[float] = None   # S ростверка внизу, м²
-    column_area_top:             Optional[float] = None   # S стойки вверху, м²
-    column_area_bottom:          Optional[float] = None   # S стойки внизу, м²
+    # Площади сечений ростверка (до 2 зон, для масс воды и разжижения)
+    footing_area_sec1_top:       Optional[float] = None   # S ростверка зона 1 вверху, м²
+    footing_area_sec1_bottom:    Optional[float] = None   # S ростверка зона 1 внизу, м²
+    footing_area_sec2_top:       Optional[float] = None   # S ростверка зона 2 вверху, м²
+    footing_area_sec2_bottom:    Optional[float] = None   # S ростверка зона 2 внизу, м²
+
+    # Площади сечений стойки (до 3 зон)
+    column_area_sec1_top:        Optional[float] = None   # S стойки зона 1 вверху, м²
+    column_area_sec1_bottom:     Optional[float] = None   # S стойки зона 1 внизу, м²
+    column_area_sec2_top:        Optional[float] = None   # S стойки зона 2 вверху, м²
+    column_area_sec2_bottom:     Optional[float] = None   # S стойки зона 2 внизу, м²
+    column_area_sec3_top:        Optional[float] = None   # S стойки зона 3 вверху, м²
+    column_area_sec3_bottom:     Optional[float] = None   # S стойки зона 3 внизу, м²
+
+    # Площади сечений сваи
     pile_area_top:               Optional[float] = None   # S сваи вверху, м²
     pile_area_bottom:            Optional[float] = None   # S сваи внизу, м²
 
-    # Ширина сечений (для бокового давления грунта)
-    footing_width:               Optional[float] = None   # cap_width, м
-    column_width:                Optional[float] = None   # col_width, м
+    # Ширина сечений ростверка по зонам (для бокового давления грунта)
+    footing_sec1_width:          Optional[float] = None   # cap_sec_1_width, м
+    footing_sec2_width:          Optional[float] = None   # cap_sec_2_width, м
+
+    # Ширина сечений стойки по зонам
+    column_sec1_width:           Optional[float] = None   # col_sec_1_width, м
+    column_sec2_width:           Optional[float] = None   # col_sec_2_width, м
+    column_sec3_width:           Optional[float] = None   # col_sec_3_width, м
+
+    # Ширина сечения сваи
     pile_width:                  Optional[float] = None   # pile_width, м
 
     # Разжиженный грунт

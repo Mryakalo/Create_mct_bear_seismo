@@ -193,6 +193,13 @@ def parse_section_zones(excel_row, part_prefix: str,
     Последняя зона всегда заканчивается на part_z_top (верх части).
     Если part_z_top не задан (None), граница последней зоны остаётся
     из Excel — это будет поймано в validate_input_data.
+
+    Примечание: в листе «Опоры» отсутствует столбец col_sec_3_z_top
+    (верхняя граница третьей зоны стойки). Для последней зоны любой
+    части это не является проблемой — её z_top всегда перезаписывается
+    значением part_z_top (верх соответствующей части опоры). Если же
+    col_sec_3_z_top потребуется для промежуточной зоны при расширении
+    таблицы, столбец необходимо добавить в Excel.
     """
     zones: list[SectionZone] = []
 
@@ -227,10 +234,10 @@ def parse_frame_parameters(excel_row, frame_number: int) -> Optional[FrameParame
     Читает параметры рамки из строки листа «Опоры».
     Возвращает None если рамка не задана (поле f{n}_x пустое).
 
-    Логика Y-координат подферменников:
-      Если заданы f{n}_r_pad_y и/или f{n}_l_pad_y — используются индивидуальные
-      значения (несимметричный режим). Если не заданы — оба берутся из f{n}_pad_y
-      (симметричный режим, обратная совместимость).
+    Y-координаты подферменников:
+      В Excel заданы только индивидуальные ключи f{n}_r_pad_y и f{n}_l_pad_y.
+      Симметричного ключа f{n}_pad_y в Excel нет — pad_y_half_width
+      вычисляется как среднее двух сторон (для обратной совместимости).
     """
     prefix = f'f{frame_number}_'
 
@@ -239,21 +246,19 @@ def parse_frame_parameters(excel_row, frame_number: int) -> Optional[FrameParame
         return None   # рамка не задана
 
     # ── Y-координаты подферменников ──────────────────────────────────────────
-    # Ключи Excel: f1_r_pad_y / f1_l_pad_y (рамка 1), f2_r_pad_y / f2_l_pad_y (рамка 2)
-    pad_y_sym   = to_float(excel_row.get(prefix + 'pad_y'), 0.0)
-    pad_y_right = to_float(excel_row.get(prefix + 'r_pad_y'))  # +Y, правый подферменник
-    pad_y_left  = to_float(excel_row.get(prefix + 'l_pad_y'))  # −Y, левый  подферменник (>0)
-    if pad_y_right is None:
-        pad_y_right = pad_y_sym
-    if pad_y_left is None:
-        pad_y_left = pad_y_sym
+    # В Excel только f{n}_r_pad_y (+Y сторона) и f{n}_l_pad_y (−Y сторона).
+    # Симметричного f{n}_pad_y нет — не пытаться его читать.
+    pad_y_right = to_float(excel_row.get(prefix + 'r_pad_y'), 0.0)
+    pad_y_left  = to_float(excel_row.get(prefix + 'l_pad_y'), 0.0)
+    # pad_y_half_width — среднее для обратной совместимости с остальным кодом
+    pad_y_sym   = (pad_y_right + pad_y_left) / 2.0
 
     return FrameParameters(
         frame_number                  = frame_number,
         x_coordinate                  = x_coordinate,
-        pad_y_half_width              = pad_y_sym,    # оставлено для обратной совместимости
-        pad_y_right                   = pad_y_right,  # Y правого подф. (+Y сторона), м
-        pad_y_left                    = pad_y_left,   # Y левого  подф. (−Y сторона), м
+        pad_y_half_width              = pad_y_sym,
+        pad_y_right                   = pad_y_right,
+        pad_y_left                    = pad_y_left,
         pad_z_bottom                  = to_float(excel_row.get(prefix + 'pad_z_bot')),
         pad_z_top                     = to_float(excel_row.get(prefix + 'pad_z_top')),
         pad_section                   = to_int(excel_row.get(prefix + 'pad_sec')),
@@ -356,14 +361,26 @@ def read_soil_influences(file_path: str) -> list[SoilInfluence]:
 
     Строка 2 — ключи, строка 3 — описания.
 
+    Площади сечений задаются посекционно:
+      Ростверк — до 2 зон: cap_area_sec_1_top/bot, cap_area_sec_2_top/bot
+      Стойка   — до 3 зон: col_area_sec_1_top/bot … col_area_sec_3_top/bot
+      Свая     — одна пара: pile_area_top/bot
+
+    Ширина сечений для эпюры бокового давления также задаётся по зонам:
+      Ростверк — cap_sec_1_width, cap_sec_2_width
+      Стойка   — col_sec_1_width, col_sec_2_width, col_sec_3_width
+      Свая     — pile_width
+
+    Примечание: в Excel колонки 10–11 листа «Грунт» (3-я зона стойки)
+    ошибочно подписаны col_area_sec_1_top/col_area_sec_1_bot повторно.
+    pandas автоматически переименовывает дубли в col_area_sec_1_top.1 /
+    col_area_sec_1_bot.1 — именно эти имена используются ниже для
+    чтения 3-й зоны стойки.
+
     Боковое давление разделено на два независимых направления:
       y_pressure_* — давление по локальной оси Y элемента
       z_pressure_* — давление по локальной оси Z элемента
-    Общие параметры грунта (pres_gamma, pres_phi) используются
-    для обоих направлений.
-
-    Ширина сечения для эпюры давления (cap_width, col_width, pile_width)
-    постоянна по высоте и задаётся отдельно для каждой части опоры.
+    Общие параметры грунта (pres_gamma, pres_phi) применяются к обоим.
     """
     dataframe = read_excel_sheet(file_path, 'Грунт', key_row_number=2)
     result_soils: list[SoilInfluence] = []
@@ -374,16 +391,30 @@ def read_soil_influences(file_path: str) -> list[SoilInfluence]:
 
         soil = SoilInfluence(
             pier_name                  = to_string(excel_row.get('pier_name'), ''),
-            # Площади сечений
-            footing_area_top           = to_float(excel_row.get('cap_area_top')),
-            footing_area_bottom        = to_float(excel_row.get('cap_area_bot')),
-            column_area_top            = to_float(excel_row.get('col_area_top')),
-            column_area_bottom         = to_float(excel_row.get('col_area_bot')),
+            # Площади сечений ростверка (зоны 1 и 2)
+            footing_area_sec1_top      = to_float(excel_row.get('cap_area_sec_1_top')),
+            footing_area_sec1_bottom   = to_float(excel_row.get('cap_area_sec_1_bot')),
+            footing_area_sec2_top      = to_float(excel_row.get('cap_area_sec_2_top')),
+            footing_area_sec2_bottom   = to_float(excel_row.get('cap_area_sec_2_bot')),
+            # Площади сечений стойки (зоны 1, 2, 3)
+            # Зона 3: pandas переименовал дублирующий ключ в col_area_sec_1_top.1
+            column_area_sec1_top       = to_float(excel_row.get('col_area_sec_1_top')),
+            column_area_sec1_bottom    = to_float(excel_row.get('col_area_sec_1_bot')),
+            column_area_sec2_top       = to_float(excel_row.get('col_area_sec_2_top')),
+            column_area_sec2_bottom    = to_float(excel_row.get('col_area_sec_2_bot')),
+            column_area_sec3_top       = to_float(excel_row.get('col_area_sec_1_top.1')),
+            column_area_sec3_bottom    = to_float(excel_row.get('col_area_sec_1_bot.1')),
+            # Площади сечений сваи
             pile_area_top              = to_float(excel_row.get('pile_area_top')),
             pile_area_bottom           = to_float(excel_row.get('pile_area_bot')),
-            # Ширина сечений
-            footing_width              = to_float(excel_row.get('cap_width')),
-            column_width               = to_float(excel_row.get('col_width')),
+            # Ширина сечений ростверка по зонам
+            footing_sec1_width         = to_float(excel_row.get('cap_sec_1_width')),
+            footing_sec2_width         = to_float(excel_row.get('cap_sec_2_width')),
+            # Ширина сечений стойки по зонам
+            column_sec1_width          = to_float(excel_row.get('col_sec_1_width')),
+            column_sec2_width          = to_float(excel_row.get('col_sec_2_width')),
+            column_sec3_width          = to_float(excel_row.get('col_sec_3_width')),
+            # Ширина сечения сваи
             pile_width                 = to_float(excel_row.get('pile_width')),
             # Разжижение
             liquefaction_present       = to_bool(excel_row.get('liq_present', 'нет')),
