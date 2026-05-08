@@ -30,12 +30,6 @@ from module_3_part1 import (
 )
 
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Точка входа
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Функции вывода результатов Модуля 2 в консоль
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -51,15 +45,25 @@ _COL_SHAFT = {
     'mat':     8,
 }
 
-# Ширины столбцов для таблицы рамок (колонка «Часть» шире)
+# Ширины столбцов для таблицы рамок
 _COL_FRAME = {
     'elem':    7,
     'node_i':  8,
     'node_j':  8,
-    'part':   30,
+    'part':   34,   # расширено с 30 до 34 для меток вида «Горизонталь z_road (−Y→ось)»
     'length': 10,
     'sec':     7,
     'mat':     8,
+}
+
+# Ширины столбцов для таблицы координат узлов рамки
+_COL_NODES = {
+    'node_id':  6,
+    'role':     5,
+    'x':       11,
+    'y':       11,
+    'z':       12,
+    'part':    34,
 }
 
 
@@ -143,6 +147,65 @@ def print_shaft_report(result: PierGeometryResult) -> None:
     print(f'    Итого элементов стержня: {len(shaft_eids)}')
 
 
+# ───────────────────────────────────────────────────────────────────────────────
+#  Вспомогательные функции для вывода координат узлов рамки
+# ───────────────────────────────────────────────────────────────────────────────
+
+def _print_node_coords_table(model, elem_labels: list[tuple[int, str]]) -> None:
+    """
+    Выводит таблицу координат узлов всех элементов рамки.
+
+    Узлы сгруппированы по элементам в порядке elem_labels
+    (подферменники → ОЧ → вертикали → горизонтали).
+    Каждый уникальный узел печатается с полными координатами один раз;
+    при повторном появлении выводится пометка «← уже выведен».
+    """
+    DOT_SEP = '·' * 76
+    DASH_SEP = '─' * 76
+
+    widths = list(_COL_NODES.values())
+    header_cells = ['Узел', 'Роль', 'x, м', 'y, м', 'z, м', 'Часть элемента']
+    headers = ' | '.join(c.center(w) for c, w in zip(header_cells, widths))
+
+    print(f'\n    Координаты узлов рамки:')
+    print(f'    {DOT_SEP}')
+    print(f'    {headers}')
+    print(f'    {DOT_SEP}')
+
+    seen: set[int] = set()
+
+    for eid, sublabel in elem_labels:
+        elem = model.elements[eid]
+
+        print(f'    {DASH_SEP}')
+        print(f'    Элемент {eid}  |  {sublabel}')
+
+        for node_id, role in ((elem.node_i, 'i'), (elem.node_j, 'j')):
+            if node_id not in model.nodes:
+                print(f'    {str(node_id).rjust(widths[0])} | {role.center(widths[1])} | '
+                      f'{"(узел отсутствует в модели)"}')
+                continue
+
+            node   = model.nodes[node_id]
+            suffix = '  ← уже выведен' if node_id in seen else ''
+            x_str = f'{node.x:.4f}'
+            y_str = f'-{abs(node.y):.4f}' if node.y < 0 else f'+{node.y:.4f}'
+            z_str = f'{node.z:.4f}'
+            cells  = [
+                str(node_id)  .rjust(widths[0]),
+                role          .center(widths[1]),
+                x_str         .rjust(widths[2]),
+                y_str         .rjust(widths[3]),
+                z_str         .rjust(widths[4]),
+                sublabel      .ljust(widths[5]),
+            ]
+            print(f'    {" | ".join(cells)}{suffix}')
+            seen.add(node_id)
+
+    print(f'    {DOT_SEP}')
+    print(f'    Уникальных узлов рамки: {len(seen)}')
+
+
 def print_frames_report(result: PierGeometryResult) -> None:
     """
     Выводит в консоль отчёт по рамкам опоры:
@@ -153,6 +216,7 @@ def print_frames_report(result: PierGeometryResult) -> None:
           · параметры каждой опорной части (позиция X/Y, Z-диапазон, тип)
           · размеры вертикалей и горизонталей
           · таблица элементов рамки
+          · таблица координат узлов (подферменники, ОЧ, вертикали, горизонтали)
     """
     model = result.model
     if model is None or not result.frame_results:
@@ -255,17 +319,13 @@ def print_frames_report(result: PierGeometryResult) -> None:
         print(f'    {line}')
         print(f'    Итого элементов рамки: {len(fr.elem_labels)}')
 
+        # ── Координаты узлов рамки ───────────────────────────────────────────
+        _print_node_coords_table(model, fr.elem_labels)
+
 
 def print_mct_body_report(result: PierGeometryResult) -> None:
     """
     Выводит в консоль отчёт по опоре, геометрия которой загружена из .mct файла.
-
-    Формат вывода:
-      — путь к файлу
-      — количество узлов, элементов, пружин
-      — диапазоны id узлов и элементов
-      — номера материалов и сечений, найденные в файле
-      — ошибки парсинга (если есть)
     """
     r = result.mct_body_result
     if r is None:
@@ -312,8 +372,6 @@ def print_mct_body_report(result: PierGeometryResult) -> None:
 def print_pile_report(result: PierGeometryResult) -> None:
     """
     Выводит в консоль отчёт по сваям опоры, загруженным из .mct файла.
-
-    Вызывается для обоих типов опор (parametric и mct) если задан pile_mct_file_path.
     """
     pr = result.pile_result
     if pr is None:
@@ -356,6 +414,10 @@ def print_pile_report(result: PierGeometryResult) -> None:
         if len(pr.errors) > 10:
             print(f'      … ещё {len(pr.errors) - 10} предупреждений')
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Точка входа
+# ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
     # Для запуска из IDE раскомментируйте и укажите путь:
@@ -491,15 +553,11 @@ def main():
     # ── Вывод результатов Модуля 2 ───────────────────────────────────────────
     for pier_name, result in pier_results.items():
         if result.mct_body_result is not None:
-            # Опора загружена из .mct — показываем специальный отчёт
             print_mct_body_report(result)
         else:
-            # Параметрическая опора — показываем отчёт по стержню и рамкам
             print_shaft_report(result)
-            print_frames_report(result)
-        # Сваи выводим в любом случае (если они есть)
+            print_frames_report(result)   # включает координаты узлов рамок
         print_pile_report(result)
-        # Часть 4 — RigidLink, Constraints, Hinges
         if result.part4_result is not None and result.model is not None:
             print_part4_report(result.part4_result, result.model)
 

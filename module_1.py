@@ -193,20 +193,13 @@ def parse_section_zones(excel_row, part_prefix: str,
     Последняя зона всегда заканчивается на part_z_top (верх части).
     Если part_z_top не задан (None), граница последней зоны остаётся
     из Excel — это будет поймано в validate_input_data.
-
-    Примечание: в листе «Опоры» отсутствует столбец col_sec_3_z_top
-    (верхняя граница третьей зоны стойки). Для последней зоны любой
-    части это не является проблемой — её z_top всегда перезаписывается
-    значением part_z_top (верх соответствующей части опоры). Если же
-    col_sec_3_z_top потребуется для промежуточной зоны при расширении
-    таблицы, столбец необходимо добавить в Excel.
     """
     zones: list[SectionZone] = []
 
     for zone_index in range(1, max_zones + 1):
         section_number = to_int(excel_row.get(f'{part_prefix}_sec_{zone_index}'))
         if section_number is None:
-            break   # зоны нумеруются последовательно, пустая = конец
+            break
 
         zone_z_top   = to_float(excel_row.get(f'{part_prefix}_sec_{zone_index}_z_top'),
                                 part_z_top)
@@ -238,6 +231,10 @@ def parse_frame_parameters(excel_row, frame_number: int) -> Optional[FrameParame
       В Excel заданы только индивидуальные ключи f{n}_r_pad_y и f{n}_l_pad_y.
       Симметричного ключа f{n}_pad_y в Excel нет — pad_y_half_width
       вычисляется как среднее двух сторон (для обратной совместимости).
+
+      pad_y_left хранится как положительное число (>0) — в _build_frame
+      применяется как -pad_y_left. Если в Excel задано отрицательное значение,
+      берём abs() чтобы избежать двойного минуса.
     """
     prefix = f'f{frame_number}_'
 
@@ -245,12 +242,8 @@ def parse_frame_parameters(excel_row, frame_number: int) -> Optional[FrameParame
     if x_coordinate is None:
         return None   # рамка не задана
 
-    # ── Y-координаты подферменников ──────────────────────────────────────────
-    # В Excel только f{n}_r_pad_y (+Y сторона) и f{n}_l_pad_y (−Y сторона).
-    # Симметричного f{n}_pad_y нет — не пытаться его читать.
     pad_y_right = to_float(excel_row.get(prefix + 'r_pad_y'), 0.0)
-    pad_y_left  = to_float(excel_row.get(prefix + 'l_pad_y'), 0.0)
-    # pad_y_half_width — среднее для обратной совместимости с остальным кодом
+    pad_y_left  = abs(to_float(excel_row.get(prefix + 'l_pad_y'), 0.0))  # всегда >0
     pad_y_sym   = (pad_y_right + pad_y_left) / 2.0
 
     return FrameParameters(
@@ -397,7 +390,6 @@ def read_soil_influences(file_path: str) -> list[SoilInfluence]:
             footing_area_sec2_top      = to_float(excel_row.get('cap_area_sec_2_top')),
             footing_area_sec2_bottom   = to_float(excel_row.get('cap_area_sec_2_bot')),
             # Площади сечений стойки (зоны 1, 2, 3)
-            # Зона 3: pandas переименовал дублирующий ключ в col_area_sec_1_top.1
             column_area_sec1_top       = to_float(excel_row.get('col_area_sec_1_top')),
             column_area_sec1_bottom    = to_float(excel_row.get('col_area_sec_1_bot')),
             column_area_sec2_top       = to_float(excel_row.get('col_area_sec_2_top')),
@@ -563,7 +555,6 @@ def validate_input_data(all_data: dict) -> list[str]:
         if pier_name in soil_by_pier:
             soil = soil_by_pier[pier_name]
 
-            # Разжижение
             if soil.liquefaction_present:
                 if soil.liquefaction_z_top is None:
                     error_messages.append(
@@ -575,7 +566,6 @@ def validate_input_data(all_data: dict) -> list[str]:
                     error_messages.append(
                         f'ОШИБКА [{pier_name}]: разжижение — не задан liq_gamma')
 
-            # Боковое давление — оба направления
             for axis, present, z_surf, z_bot in [
                 ('Y', soil.lateral_pressure_y_present,
                        soil.pressure_y_z_surface, soil.pressure_y_z_bottom),
@@ -600,7 +590,6 @@ def validate_input_data(all_data: dict) -> list[str]:
                             f'ОШИБКА [{pier_name}]: давление по оси {axis} — '
                             f'не задан pres_phi')
 
-            # Масса воды
             if soil.water_mass_present:
                 if soil.water_z_top is None:
                     error_messages.append(
@@ -609,7 +598,6 @@ def validate_input_data(all_data: dict) -> list[str]:
                     error_messages.append(
                         f'ОШИБКА [{pier_name}]: масса воды — не задан water_z_bot')
 
-            # Нагрузка на ростверк
             if soil.soil_load_on_footing:
                 if soil.soil_load_unit_weight is None:
                     error_messages.append(
