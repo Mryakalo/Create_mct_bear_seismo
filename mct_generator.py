@@ -35,6 +35,12 @@ from module_3_part2 import (
     FluidMassResult,
 )
 
+from module_3_part_3 import (
+    generate_lateral_pressure,
+    LateralPressureResult,
+    ElemPressureEntry,
+)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Функции вывода результатов Модуля 2 в консоль
@@ -421,6 +427,117 @@ def print_pile_report(result: PierGeometryResult) -> None:
             print(f'      … ещё {len(pr.errors) - 10} предупреждений')
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Функции вывода результатов Модуля 3, Часть 3
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Ширины столбцов таблицы бокового давления грунта
+_COL_PRES = {
+    'elem':   7,
+    'type':  12,
+    'node_i': 8,
+    'node_j': 8,
+    'z_i':   10,
+    'z_j':   10,
+    'w_i':    8,
+    'w_j':    8,
+    'p_i':   10,
+    'p_j':   10,
+    'q_i':   10,
+    'q_j':   10,
+}
+
+
+def print_lateral_pressure_report(
+        lateral_results: dict[str, LateralPressureResult],
+) -> None:
+    """
+    Выводит в консоль отчёт по боковому давлению грунта (Модуль 3, Часть 3).
+
+    Для каждой опоры:
+      — итоговые равнодействующие по Y и Z
+      — таблица элементов с эпюрой нагрузки (q_i, q_j)
+      — предупреждения
+    """
+    widths = list(_COL_PRES.values())
+    header_cells = [
+        '№ эл.', 'Тип', 'Узел i', 'Узел j',
+        'z_i, м', 'z_j, м',
+        'b_i, м', 'b_j, м',
+        'p_i тс/м²', 'p_j тс/м²',
+        'q_i тс/м', 'q_j тс/м',
+    ]
+
+    for pier_name, res in lateral_results.items():
+        has_y = bool(res.entries_y)
+        has_z = bool(res.entries_z)
+
+        if not has_y and not has_z and not res.warnings:
+            continue  # нет грунтового воздействия — не выводим блок
+
+        print(f'\n  Опора [{pier_name}] — боковое давление грунта:')
+        sep = '─' * 58
+
+        for direction, entries, force in (
+            ('Y', res.entries_y, res.total_force_y()),
+            ('Z', res.entries_z, res.total_force_z()),
+        ):
+            if not entries:
+                continue
+
+            # Разбивка по типам для итоговой строки
+            by_type: dict[str, list[ElemPressureEntry]] = {}
+            for e in entries:
+                by_type.setdefault(e.elem_type, []).append(e)
+
+            print(f'\n    Направление {direction}  '
+                  f'(элементов: {len(entries)}, '
+                  f'равнодействующая = {force:.4f} тс):')
+            for etype, elems in sorted(by_type.items()):
+                sub_force = sum(
+                    (e.q_i + e.q_j) / 2.0 * abs(e.z_j - e.z_i)
+                    for e in elems
+                )
+                print(f'      {etype}: {len(elems)} эл., '
+                      f'F = {sub_force:.4f} тс')
+
+            # Таблица
+            total_w, line = _table_header(
+                _COL_PRES, header_cells,
+                f'Боковое давление грунта — направление {direction}',
+            )
+
+            for e in sorted(entries, key=lambda x: (x.elem_type, x.elem_id)):
+                cells = [
+                    str(e.elem_id)    .rjust(widths[0]),
+                    e.elem_type       .ljust(widths[1]),
+                    str(e.node_i)     .rjust(widths[2]),
+                    str(e.node_j)     .rjust(widths[3]),
+                    f'{e.z_i:.4f}'    .rjust(widths[4]),
+                    f'{e.z_j:.4f}'    .rjust(widths[5]),
+                    f'{e.width_i:.4f}'.rjust(widths[6]),
+                    f'{e.width_j:.4f}'.rjust(widths[7]),
+                    f'{e.pressure_i:.4f}'.rjust(widths[8]),
+                    f'{e.pressure_j:.4f}'.rjust(widths[9]),
+                    f'{e.q_i:.4f}'    .rjust(widths[10]),
+                    f'{e.q_j:.4f}'    .rjust(widths[11]),
+                ]
+                print(f'    {" | ".join(cells)}')
+
+            print(f'    {line}')
+            print(f'    Итого: элементов={len(entries)}, '
+                  f'равнодействующая F{direction} = {force:.4f} тс')
+
+        if res.warnings:
+            print(f'\n    Предупреждения ({len(res.warnings)}):')
+            for w in res.warnings[:10]:
+                print(f'      {w}')
+            if len(res.warnings) > 10:
+                print(f'      … ещё {len(res.warnings) - 10} предупреждений')
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Точка входа
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -617,6 +734,43 @@ def main():
     m3p2_warn = sum(1 for r in fluid_mass_results.values() if r.warnings)
     print(f'\nМодуль 3 (Часть 2) завершён: {m3p2_ok} опор без замечаний'
           + (f', {m3p2_warn} с предупреждениями' if m3p2_warn else '') + '.')
+
+    # ── Модуль 3, Часть 3: боковое давление грунта ───────────────────────────
+    print('\n' + '═' * 60)
+    print('Модуль 3 (Часть 3) — боковое давление грунта')
+    print('═' * 60)
+
+    # Индекс грунтовых данных по имени опоры для быстрого доступа
+    soil_by_pier = {s.pier_name: s for s in all_data['grunt']}
+
+    lateral_results: dict[str, LateralPressureResult] = {}
+    for pier in piers_to_calc:
+        geom_result = pier_results.get(pier.pier_name)
+        if geom_result is None or geom_result.model is None:
+            continue   # опора с ошибкой геометрии — пропускаем
+
+        soil = soil_by_pier.get(pier.pier_name)
+        if soil is None:
+            continue   # нет грунтовых данных для опоры
+
+        if not soil.lateral_pressure_y_present and not soil.lateral_pressure_z_present:
+            continue   # боковое давление не задано — пропускаем без вывода
+
+        lateral_results[pier.pier_name] = generate_lateral_pressure(
+            model=geom_result.model,
+            pier=pier,
+            soil=soil,
+        )
+
+    print_lateral_pressure_report(lateral_results)
+
+    m3p3_ok   = sum(1 for r in lateral_results.values() if not r.warnings)
+    m3p3_warn = sum(1 for r in lateral_results.values() if r.warnings)
+    m3p3_skip = len(piers_to_calc) - len(lateral_results)
+    print(f'\nМодуль 3 (Часть 3) завершён: {m3p3_ok} опор без замечаний'
+          + (f', {m3p3_warn} с предупреждениями' if m3p3_warn else '')
+          + (f', {m3p3_skip} пропущено (нет бокового давления)' if m3p3_skip else '')
+          + '.')
 
 
 if __name__ == '__main__':

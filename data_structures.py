@@ -660,3 +660,119 @@ class FluidMassResult:
 
     def total_mass_y(self) -> float:
         return sum(e.mass_y for e in self.node_masses)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структуры данных Модуля 3, Часть 3 — боковое давление грунта
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ElemPressureEntry:
+    """
+    Трапециевидная эпюра бокового давления грунта на один элемент.
+
+    q_i, q_j — интенсивность нагрузки (тс/м) в узлах i и j соответственно.
+    Направление задаётся полем direction ('y' или 'z').
+
+    Знак нагрузки положительный: направление приложения (ось Y или Z
+    локальной системы) определяется при генерации .mct командой *BEAM-LOAD.
+    """
+    elem_id:    int
+    node_i:     int       # id узла i (нижний)
+    node_j:     int       # id узла j (верхний)
+    z_i:        float     # Z-координата узла i, м
+    z_j:        float     # Z-координата узла j, м
+    width_i:    float     # ширина сечения в узле i, м
+    width_j:    float     # ширина сечения в узле j, м
+    pressure_i: float     # активное давление грунта в узле i, тс/м²
+    pressure_j: float     # активное давление грунта в узле j, тс/м²
+    q_i:        float     # нагрузка в узле i = pressure_i * width_i, тс/м
+    q_j:        float     # нагрузка в узле j = pressure_j * width_j, тс/м
+    direction:  str       # 'y' или 'z'
+    elem_type:  str       # _ELEM_TYPE_PILE / _ELEM_TYPE_FOOTING / _ELEM_TYPE_BODY
+
+
+@dataclass
+class LateralPressureResult:
+    """
+    Результат Части 3 Модуля 3 для одной опоры.
+
+    entries_y — элементы с боковым давлением по оси Y.
+    entries_z — элементы с боковым давлением по оси Z.
+    warnings  — диагностические сообщения.
+    """
+    pier_name: str
+    entries_y: list[ElemPressureEntry] = field(default_factory=list)
+    entries_z: list[ElemPressureEntry] = field(default_factory=list)
+    warnings:  list[str]              = field(default_factory=list)
+
+    def total_force_y(self) -> float:
+        """Суммарная равнодействующая по Y (трапеции → среднее * длина)."""
+        return sum(
+            (e.q_i + e.q_j) / 2.0 * abs(e.z_j - e.z_i)
+            for e in self.entries_y
+        )
+
+    def total_force_z(self) -> float:
+        """Суммарная равнодействующая по Z."""
+        return sum(
+            (e.q_i + e.q_j) / 2.0 * abs(e.z_j - e.z_i)
+            for e in self.entries_z
+        )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структуры данных результата
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ElemPressureEntry:
+    """
+    Трапециевидная эпюра бокового давления грунта на один элемент.
+
+    q_i, q_j — интенсивность нагрузки (тс/м) в узлах i и j соответственно.
+    Направление задаётся полем direction ('y' или 'z').
+
+    Знак нагрузки положительный: направление приложения (ось Y или Z
+    локальной системы) определяется при генерации .mct командой *BEAM-LOAD.
+    """
+    elem_id:   int
+    node_i:    int           # id узла i (нижний)
+    node_j:    int           # id узла j (верхний)
+    z_i:       float         # Z-координата узла i, м
+    z_j:       float         # Z-координата узла j, м
+    width_i:   float         # ширина сечения в узле i, м
+    width_j:   float         # ширина сечения в узле j, м
+    pressure_i: float        # активное давление грунта в узле i, тс/м²
+    pressure_j: float        # активное давление грунта в узле j, тс/м²
+    q_i:       float         # нагрузка в узле i = pressure_i * width_i, тс/м
+    q_j:       float         # нагрузка в узле j = pressure_j * width_j, тс/м
+    direction: str           # 'y' или 'z'
+    elem_type: str           # _ELEM_TYPE_*
+
+
+@dataclass
+class LateralPressureResult:
+    """
+    Результат Части 3 для одной опоры.
+
+    entries_y — элементы с боковым давлением по оси Y.
+    entries_z — элементы с боковым давлением по оси Z.
+    warnings  — диагностические сообщения.
+    """
+    pier_name: str
+    entries_y: list[ElemPressureEntry] = field(default_factory=list)
+    entries_z: list[ElemPressureEntry] = field(default_factory=list)
+    warnings:  list[str]              = field(default_factory=list)
+
+    def total_force_y(self) -> float:
+        """Суммарная равнодействующая по Y (трапеции → среднее * длина)."""
+        return sum(
+            (e.q_i + e.q_j) / 2.0 * abs(e.z_j - e.z_i)
+            for e in self.entries_y
+        )
+
+    def total_force_z(self) -> float:
+        """Суммарная равнодействующая по Z."""
+        return sum(
+            (e.q_i + e.q_j) / 2.0 * abs(e.z_j - e.z_i)
+            for e in self.entries_z
+        )

@@ -560,3 +560,193 @@ def _mean_area_for_element(
             return a_bot + t * (a_top - a_bot)
 
     return (a_top + a_bot) / 2.0
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Вспомогательные функции
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _active_pressure_coeff(friction_angle_deg: float) -> float:
+    """
+    Коэффициент активного давления Ренкина:
+        Ka = tan²(45° − φ/2)
+    """
+    phi_rad = math.radians(friction_angle_deg / 2.0)
+    return math.tan(math.radians(45.0) - phi_rad) ** 2
+
+
+def _active_pressure_at_z(
+    z_node: float,
+    z_surface: float,
+    z_bottom: float,
+    gamma: float,
+    ka: float,
+) -> float:
+    """
+    Активное давление грунта в точке z_node [тс/м²]:
+        p = γ · Ka · h,  h = z_surface − z_node
+    Возвращает 0, если узел выше поверхности или ниже низа зоны.
+    """
+    if z_node > z_surface or z_node < z_bottom:
+        return 0.0
+    h = z_surface - z_node
+    return gamma * ka * h
+
+
+def _interpolate_width(
+    z: float,
+    z_top_zone: float,
+    z_bot_zone: float,
+    width_top: float,
+    width_bot: float,
+) -> float:
+    """
+    Линейная интерполяция ширины внутри зоны по Z.
+
+    t = 0 → низ зоны (width_bot); t = 1 → верх зоны (width_top).
+    Если зона вырождена — возвращает среднее.
+    """
+    span = z_top_zone - z_bot_zone
+    if span < 1e-9:
+        return (width_top + width_bot) / 2.0
+    t = max(0.0, min(1.0, (z - z_bot_zone) / span))
+    return width_bot + t * (width_top - width_bot)
+
+
+def _get_width_at_z(
+    z: float,
+    elem: Element,
+    elem_type: str,
+    pier: PierGeometry,
+    soil: SoilInfluence,
+    warnings: list[str],
+) -> Optional[float]:
+    """
+    Возвращает ширину сечения элемента на отметке z методом линейной
+    интерполяции внутри зоны, к которой принадлежит элемент.
+
+    Ширины задаются в SoilInfluence по секциям и типу элемента.
+    section_number элемента сопоставляется с зонами PierGeometry, как в
+    _mean_area_for_element (additional_functions.py).
+    """
+    sec = elem.section_number
+
+    # ── Сваи ────────────────────────────────────────────────────────────────
+    if elem_type == _ELEM_TYPE_PILE:
+        w = soil.pile_width
+        if w is None:
+            warnings.append(
+                f'  ⚠  [{soil.pier_name}] элемент {elem.elem_id} (свая): '
+                f'pile_width не задан — элемент пропущен'
+            )
+        return w
+
+    # ── Ростверк ─────────────────────────────────────────────────────────────
+    if elem_type == _ELEM_TYPE_FOOTING:
+        zones_widths = [
+            soil.footing_sec1_width,
+            soil.footing_sec2_width,
+        ]
+        pier_zones = pier.footing_zones
+
+    # ── Тело опоры (стойка + ригель) ─────────────────────────────────────────
+    else:
+        zones_widths = [
+            soil.column_sec1_width,
+            soil.column_sec2_width,
+            soil.column_sec3_width,
+        ]
+        pier_zones = pier.column_zones
+
+    # Ищем зону по section_number элемента
+    matching_idx: Optional[int] = None
+    for idx, pz in enumerate(pier_zones):
+        if pz.section_number == sec and idx < len(zones_widths):
+            matching_idx = idx
+            break
+
+    if matching_idx is None:
+        matching_idx = 0
+        warnings.append(
+            f'  ℹ  [{soil.pier_name}] элемент {elem.elem_id} '
+            f'(тип={elem_type}, sec={sec}): '
+            f'сечение не найдено в зонах — используется зона 1 для ширины'
+        )
+
+    w = zones_widths[matching_idx]
+    if w is None:
+        warnings.append(
+            f'  ⚠  [{soil.pier_name}] элемент {elem.elem_id} '
+            f'(тип={elem_type}, sec={sec}, зона {matching_idx + 1}): '
+            f'ширина сечения не задана — элемент пропущен'
+        )
+        return None
+
+    # Для сваи и простых (не переменных) сечений ширина константа — возвращаем сразу.
+    # Для ростверка и стойки ширина может линейно изменяться между верхом и низом зоны,
+    # если бы были заданы раздельные значения. В текущей структуре SoilInfluence
+    # ширина задана единым значением на зону — возвращаем его.
+    return w
+
+
+def _width_at_z_for_node(
+    z: float,
+    elem: Element,
+    elem_type: str,
+    pier: PierGeometry,
+    soil: SoilInfluence,
+    warnings: list[str],
+) -> Optional[float]:
+    """
+    Ширина сечения на отметке z с линейной интерполяцией внутри зоны PierGeometry.
+
+    Если у элемента известна зона, для которой задана ширина и верхняя/нижняя
+    границы зоны — выполняется интерполяция. Иначе — возвращается единственное
+    значение ширины зоны без интерполяции.
+
+    Для тела опоры ширина может изменяться между зонами (стойка нижняя /
+    стойка верхняя). Внутри одной зоны ширина считается постоянной (одно
+    значение на зону в SoilInfluence). Если потребуется переменная ширина внутри
+    зоны — следует расширить SoilInfluence полями *_top / *_bottom.
+    """
+    sec = elem.section_number
+
+    if elem_type == _ELEM_TYPE_PILE:
+        return _get_width_at_z(z, elem, elem_type, pier, soil, warnings)
+
+    if elem_type == _ELEM_TYPE_FOOTING:
+        pier_zones = pier.footing_zones
+        zones_widths = [
+            soil.footing_sec1_width,
+            soil.footing_sec2_width,
+        ]
+    else:
+        pier_zones = pier.column_zones
+        zones_widths = [
+            soil.column_sec1_width,
+            soil.column_sec2_width,
+            soil.column_sec3_width,
+        ]
+
+    matching_idx: Optional[int] = None
+    for idx, pz in enumerate(pier_zones):
+        if pz.section_number == sec and idx < len(zones_widths):
+            matching_idx = idx
+            break
+
+    if matching_idx is None:
+        matching_idx = 0
+
+    w = zones_widths[matching_idx]
+    if w is None:
+        return None
+
+    # Границы зоны
+    if matching_idx == 0:
+        z_zone_bot = 0.0
+    else:
+        z_zone_bot = pier_zones[matching_idx - 1].zone_z_top
+    z_zone_top = pier_zones[matching_idx].zone_z_top
+
+    # Ширина внутри зоны постоянна (одно значение на зону):
+    # интерполируем как константу, но сохраняем структуру для будущего расширения.
+    return _interpolate_width(z, z_zone_top, z_zone_bot, w, w)
