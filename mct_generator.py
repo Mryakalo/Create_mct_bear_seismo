@@ -41,6 +41,13 @@ from module_3_part_3 import (
     ElemPressureEntry,
 )
 
+from module_3_part_4 import (
+    generate_soil_vertical_load,
+    print_soil_vertical_load_report,
+    SoilVerticalLoadResult,
+)
+
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Функции вывода результатов Модуля 2 в консоль
@@ -770,6 +777,45 @@ def main():
     print(f'\nМодуль 3 (Часть 3) завершён: {m3p3_ok} опор без замечаний'
           + (f', {m3p3_warn} с предупреждениями' if m3p3_warn else '')
           + (f', {m3p3_skip} пропущено (нет бокового давления)' if m3p3_skip else '')
+          + '.')
+
+    # ── Модуль 3, Часть 4: вертикальное давление грунта на ростверк ──────────
+    print('\n' + '═' * 60)
+    print('Модуль 3 (Часть 4) — вертикальное давление грунта на ростверк')
+    print('═' * 60)
+
+    soil_vertical_results: dict[str, SoilVerticalLoadResult] = {}
+    for pier in piers_to_calc:
+        geom_result = pier_results.get(pier.pier_name)
+        if geom_result is None or geom_result.model is None:
+            continue   # опора с ошибкой геометрии — пропускаем
+
+        soil = soil_by_pier.get(pier.pier_name)
+        if soil is None:
+            continue   # нет грунтовых данных для опоры
+
+        if not soil.soil_load_on_footing:
+            continue   # флаг не установлен — пропускаем без вывода
+
+        sv_result = generate_soil_vertical_load(
+            model       = geom_result.model,
+            pier        = pier,
+            soil        = soil,
+            coord_index = geom_result.coord_index,
+            gravity     = project.gravity,
+        )
+        soil_vertical_results[pier.pier_name] = sv_result
+        print_soil_vertical_load_report(sv_result)
+
+    m3p4_ok   = sum(1 for r in soil_vertical_results.values()
+                    if not r.skipped and not r.warnings)
+    m3p4_warn = sum(1 for r in soil_vertical_results.values()
+                    if not r.skipped and r.warnings)
+    m3p4_skip = len(piers_to_calc) - len(soil_vertical_results)
+    print(f'\nМодуль 3 (Часть 4) завершён: {m3p4_ok} опор без замечаний'
+          + (f', {m3p4_warn} с предупреждениями' if m3p4_warn else '')
+          + (f', {m3p4_skip} пропущено (флаг не установлен или нет данных)'
+             if m3p4_skip else '')
           + '.')
 
 
