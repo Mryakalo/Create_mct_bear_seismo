@@ -2,7 +2,7 @@ import math
 from typing import Optional
 
 from data_structures import PierModel, Node, TsGroup, BearingPlaneRow, FrameParameters, PierGeometry, MassesRow, \
-    LoadPoint
+    LoadPoint, Element, SoilInfluence
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -415,3 +415,148 @@ def _build_load_point(pier: PierGeometry,
         bearing_type_X = bearing_type_X,
         bearing_type_Y = bearing_type_Y,
     )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Вспомогательные функции модуль 3 часть 2
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Типы элементов опоры
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_ELEM_TYPE_PILE     = 'сваи'
+_ELEM_TYPE_FOOTING  = 'ростверк'
+_ELEM_TYPE_BODY     = 'тело опоры'   # стойка + ригель
+
+def _elem_z_range(model: PierModel, elem: Element) -> tuple[float, float]:
+    """Возвращает (z_min, z_max) узлов элемента."""
+    node_i = model.nodes[elem.node_i]
+    node_j = model.nodes[elem.node_j]
+    return min(node_i.z, node_j.z), max(node_i.z, node_j.z)
+
+
+def _overlap_length(z_i: float, z_j: float,
+                    z_bot: float, z_top: float) -> float:
+    """
+    Длина пересечения отрезка [z_i, z_j] с зоной [z_bot, z_top].
+    Возвращает 0.0, если пересечения нет.
+    """
+    lo = max(min(z_i, z_j), z_bot)
+    hi = min(max(z_i, z_j), z_top)
+    return max(0.0, hi - lo)
+
+
+def _classify_element(elem: Element, pier: PierGeometry) -> str:
+    """
+    Определяет тип элемента по его id относительно офсетов PierGeometry.
+
+    Сваи:     [node_offset_piles .. +∞)     — наибольший офсет
+    Ростверк: [elem_offset_footing .. elem_offset_column)
+    Тело:     [elem_offset_column  .. elem_offset_piles)  (стойка + ригель)
+    """
+    eid = elem.elem_id
+    if eid >= pier.elem_offset_piles:
+        return _ELEM_TYPE_PILE
+    if eid >= pier.elem_offset_footing and eid < pier.elem_offset_column:
+        return _ELEM_TYPE_FOOTING
+    return _ELEM_TYPE_BODY
+
+
+def _mean_area_for_element(
+    elem: Element,
+    elem_type: str,
+    soil: SoilInfluence,
+    z_mid: float,
+    pier: PierGeometry,
+    warnings: list[str],
+) -> Optional[float]:
+    """
+    Вычисляет среднюю площадь поперечного сечения элемента.
+
+    Площади в SoilInfluence задаются попарно (top/bottom) для каждой зоны.
+    Зона определяется по section_number элемента, сопоставленному с зонами
+    PierGeometry (footing_zones / column_zones).
+
+    Для сваи всегда берётся единственная пара pile_area_{top,bottom},
+    а линейная интерполяция выполняется между низом и верхом зоны.
+
+    Параметр z_mid — средняя Z-отметка участка элемента в зоне воздействия
+    (используется для интерполяции).
+    """
+    sec = elem.section_number
+
+    # ── Сваи ─────────────────────────────────────────────────────────────────
+    if elem_type == _ELEM_TYPE_PILE:
+        a_top = soil.pile_area_top
+        a_bot = soil.pile_area_bottom
+        if a_top is None or a_bot is None:
+            warnings.append(
+                f'  ⚠  [{soil.pier_name}] элемент {elem.elem_id} (свая, sec={sec}): '
+                f'pile_area_top/bottom не заданы — элемент пропущен'
+            )
+            return None
+        # Интерполяция между верхом и низом зоны воздействия выполняется
+        # в вызывающей функции; здесь возвращаем среднее top/bottom.
+        return (a_top + a_bot) / 2.0
+
+    # ── Ростверк ─────────────────────────────────────────────────────────────
+    if elem_type == _ELEM_TYPE_FOOTING:
+        zones_areas = [
+            (soil.footing_area_sec1_top, soil.footing_area_sec1_bottom),
+            (soil.footing_area_sec2_top, soil.footing_area_sec2_bottom),
+        ]
+        pier_zones = pier.footing_zones
+
+    # ── Тело опоры (стойка + ригель) ─────────────────────────────────────────
+    else:
+        zones_areas = [
+            (soil.column_area_sec1_top, soil.column_area_sec1_bottom),
+            (soil.column_area_sec2_top, soil.column_area_sec2_bottom),
+            (soil.column_area_sec3_top, soil.column_area_sec3_bottom),
+        ]
+        pier_zones = pier.column_zones
+
+    # Ищем зону, section_number которой совпадает с номером сечения элемента
+    matching_zone_idx: Optional[int] = None
+    for idx, pz in enumerate(pier_zones):
+        if pz.section_number == sec and idx < len(zones_areas):
+            matching_zone_idx = idx
+            break
+
+    if matching_zone_idx is None:
+        # Сечение не найдено в зонах — берём первую доступную пару как fallback
+        matching_zone_idx = 0
+        warnings.append(
+            f'  ℹ  [{soil.pier_name}] элемент {elem.elem_id} '
+            f'(тип={elem_type}, sec={sec}): '
+            f'сечение не найдено в зонах, используется зона 1'
+        )
+
+    a_top, a_bot = zones_areas[matching_zone_idx]
+
+    if a_top is None or a_bot is None:
+        warnings.append(
+            f'  ⚠  [{soil.pier_name}] элемент {elem.elem_id} '
+            f'(тип={elem_type}, sec={sec}, зона {matching_zone_idx + 1}): '
+            f'площадь сечения не задана — элемент пропущен'
+        )
+        return None
+
+    # Линейная интерполяция: знаем A в верху и низу зоны PierGeometry
+    # Для получения A в произвольной точке z используем z_mid элемента
+    # относительно диапазона соответствующей зоны.
+    if pier_zones:
+        pz = pier_zones[matching_zone_idx]
+        # Нижняя граница зоны: предыдущая zone_z_top или 0 (для ростверка)
+        if matching_zone_idx == 0:
+            z_zone_bot = 0.0  # низ первой зоны = низ ростверка
+        else:
+            z_zone_bot = pier_zones[matching_zone_idx - 1].zone_z_top
+        z_zone_top = pz.zone_z_top
+        zone_height = z_zone_top - z_zone_bot
+        if zone_height > 1e-9:
+            t = max(0.0, min(1.0, (z_mid - z_zone_bot) / zone_height))
+            # t=0 → низ зоны (a_bot), t=1 → верх зоны (a_top)
+            return a_bot + t * (a_top - a_bot)
+
+    return (a_top + a_bot) / 2.0

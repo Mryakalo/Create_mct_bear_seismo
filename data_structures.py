@@ -625,3 +625,38 @@ class PierLoadAssignment:
     pier_name:   str
     load_points: list[LoadPoint] = field(default_factory=list)
     warnings:    list[str]       = field(default_factory=list)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Структуры модуль 3 часть 2
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class NodeMassEntry:
+    """Горизонтальная сейсмическая масса одного узла от одного источника."""
+    node_id:   int
+    z:         float   # Z-координата узла, м
+    mass_x:    float   # масса по X, тс·с²/м
+    mass_y:    float   # масса по Y, тс·с²/м  (= mass_x для изотропной зоны)
+    source:    str     # 'вода' | 'разжижение'
+    elem_type: str     # _ELEM_TYPE_*
+
+
+@dataclass
+class FluidMassResult:
+    """
+    Результат Части 2 для одной опоры.
+
+    node_masses — список NodeMassEntry (может быть несколько записей на один
+                  узел, если он граничит с несколькими элементами; суммируются
+                  при записи в .mct).
+    warnings    — диагностические сообщения (незаданные площади, пустые зоны и т.д.)
+    """
+    pier_name:   str
+    node_masses: list[NodeMassEntry] = field(default_factory=list)
+    warnings:    list[str]           = field(default_factory=list)
+
+    def total_mass_x(self) -> float:
+        return sum(e.mass_x for e in self.node_masses)
+
+    def total_mass_y(self) -> float:
+        return sum(e.mass_y for e in self.node_masses)

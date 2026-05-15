@@ -29,6 +29,12 @@ from module_3_part1 import (
     PierLoadAssignment,
 )
 
+from module_3_part2 import (
+    build_all_fluid_masses,
+    print_fluid_masses_report,
+    FluidMassResult,
+)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Функции вывода результатов Модуля 2 в консоль
@@ -588,6 +594,29 @@ def main():
     m3_warn = sum(1 for a in load_assignments.values() if a.warnings)
     print(f'\nМодуль 3 (Часть 1) завершён: {m3_ok} опор без замечаний'
           + (f', {m3_warn} с предупреждениями' if m3_warn else '') + '.')
+
+    # ── Модуль 3, Часть 2: массы от воды и разжиженного грунта ──────────────
+    print('\n' + '═' * 60)
+    print('Модуль 3 (Часть 2) — массы от воды и разжиженного грунта')
+    print('═' * 60)
+
+    fluid_mass_results: dict[str, FluidMassResult] = build_all_fluid_masses(
+        piers=piers_to_calc,
+        models={
+            name: r.model
+            for name, r in pier_results.items()
+            if r.model is not None
+        },
+        soils=all_data['grunt'],
+        gravity=project.gravity,
+    )
+
+    print_fluid_masses_report(fluid_mass_results)
+
+    m3p2_ok = sum(1 for r in fluid_mass_results.values() if not r.warnings)
+    m3p2_warn = sum(1 for r in fluid_mass_results.values() if r.warnings)
+    print(f'\nМодуль 3 (Часть 2) завершён: {m3p2_ok} опор без замечаний'
+          + (f', {m3p2_warn} с предупреждениями' if m3p2_warn else '') + '.')
 
 
 if __name__ == '__main__':
